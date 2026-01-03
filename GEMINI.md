@@ -1,6 +1,4 @@
-# micarnet
-
-This project was created with [Better-T-Stack](https://github.com/AmanVarshney01/create-better-t-stack), a modern TypeScript stack that combines Next.js, Self, ORPC, and more.
+# MiCarnet
 
 ## Features
 
@@ -9,42 +7,13 @@ This project was created with [Better-T-Stack](https://github.com/AmanVarshney01
 - **TailwindCSS** - Utility-first CSS for rapid UI development
 - **shadcn/ui** - Reusable UI components
 - **oRPC** - End-to-end type-safe APIs with OpenAPI integration
-- **Drizzle** - TypeScript-first ORM
+- **Drizzle** - TypeScript-first ORM for PostgreSQL
 - **PostgreSQL** - Database engine
 - **Authentication** - Better-Auth
 - **Ultracite** - Biome-based linter and formatter
 - **Husky** - Git hooks for code quality
 - **Turborepo** - Optimized monorepo build system
-
-## Getting Started
-
-First, install the dependencies:
-
-```bash
-pnpm install
-```
-## Database Setup
-
-This project uses PostgreSQL with Drizzle ORM.
-
-1. Make sure you have a PostgreSQL database set up.
-2. Update your `apps/web/.env` file with your PostgreSQL connection details.
-
-3. Apply the schema to your database:
-```bash
-pnpm run db:push
-```
-
-
-Then, run the development server:
-
-```bash
-pnpm run dev
-```
-
-Open [http://localhost:3001](http://localhost:3001) in your browser to see your fullstack application.
-
-
+- **Coolify** - Docker-based self-hosting
 
 ## Project Structure
 
