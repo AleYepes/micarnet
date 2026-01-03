@@ -1,5 +1,5 @@
 import { db } from "@micarnet/db";
-import * as schema from "@micarnet/db/schema/auth";
+import { account, session, user, verification } from "@micarnet/db/schema/auth";
 import { env } from "@micarnet/env/server";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
@@ -9,7 +9,12 @@ export const auth = betterAuth({
   database: drizzleAdapter(db, {
     provider: "pg",
 
-    schema,
+    schema: {
+      account,
+      session,
+      user,
+      verification,
+    },
   }),
   trustedOrigins: [env.CORS_ORIGIN],
   emailAndPassword: {

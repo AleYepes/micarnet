@@ -88,46 +88,54 @@ export default function TodosPage() {
             </Button>
           </form>
 
-          {todos.isLoading ? (
-            <div className="flex justify-center py-4">
-              <Loader2 className="h-6 w-6 animate-spin" />
-            </div>
-          ) : todos.data?.length === 0 ? (
-            <p className="py-4 text-center">No todos yet. Add one above!</p>
-          ) : (
-            <ul className="space-y-2">
-              {todos.data?.map((todo) => (
-                <li
-                  className="flex items-center justify-between rounded-md border p-2"
-                  key={todo.id}
-                >
-                  <div className="flex items-center space-x-2">
-                    <Checkbox
-                      checked={todo.completed}
-                      id={`todo-${todo.id}`}
-                      onCheckedChange={() =>
-                        handleToggleTodo(todo.id, todo.completed)
-                      }
-                    />
-                    <label
-                      className={`${todo.completed ? "text-muted-foreground line-through" : ""}`}
-                      htmlFor={`todo-${todo.id}`}
-                    >
-                      {todo.text}
-                    </label>
-                  </div>
-                  <Button
-                    aria-label="Delete todo"
-                    onClick={() => handleDeleteTodo(todo.id)}
-                    size="icon"
-                    variant="ghost"
+          {(() => {
+            if (todos.isLoading) {
+              return (
+                <div className="flex justify-center py-4">
+                  <Loader2 className="h-6 w-6 animate-spin" />
+                </div>
+              );
+            }
+            if (!todos.data || todos.data.length === 0) {
+              return (
+                <p className="py-4 text-center">No todos yet. Add one above!</p>
+              );
+            }
+            return (
+              <ul className="space-y-2">
+                {todos.data.map((todo) => (
+                  <li
+                    className="flex items-center justify-between rounded-md border p-2"
+                    key={todo.id}
                   >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </li>
-              ))}
-            </ul>
-          )}
+                    <div className="flex items-center space-x-2">
+                      <Checkbox
+                        checked={todo.completed}
+                        id={`todo-${todo.id}`}
+                        onCheckedChange={() =>
+                          handleToggleTodo(todo.id, todo.completed)
+                        }
+                      />
+                      <label
+                        className={`${todo.completed ? "text-muted-foreground line-through" : ""}`}
+                        htmlFor={`todo-${todo.id}`}
+                      >
+                        {todo.text}
+                      </label>
+                    </div>
+                    <Button
+                      aria-label="Delete todo"
+                      onClick={() => handleDeleteTodo(todo.id)}
+                      size="icon"
+                      variant="ghost"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            );
+          })()}
         </CardContent>
       </Card>
     </div>
