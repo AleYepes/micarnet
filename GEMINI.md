@@ -4,30 +4,60 @@ The definitive platform for Spanish residents to find, vet, and enroll in drivin
 
 ## Features
 
-- TypeScript: For type safety and improved developer experience
-- Next.js: Full-stack React framework
-- TailwindCSS: Utility-first CSS for rapid UI development
-- shadcn/ui: Reusable UI components
-- oRPC: End-to-end type-safe APIs with OpenAPI integration
-- Drizzle: TypeScript-first ORM for PostgreSQL
-- PostgreSQL: Database engine
-- Authentication: Better-Auth
-- Ultracite: Biome-based linter and formatter
-- Husky: Git hooks for code quality
-- Turborepo: Optimized monorepo build system
-- Coolify: Docker-based self-hosting
+- Web app: Fullstack Next v16+ with Typescript v5+
+- Styling: Tailwind CSS v4+ and shadch/ui components
+- Database: PostgreSQL with Drizzle ORM and Drizzle-kit migrations
+- Deployment: Coolify and Docker
+- APIs: oRPC for end-to-end type-safety with OpenAPI integration
+- Runtime env & Package manager: pnpm
+- Build system: Turborepo v2.5+
+- Payments: Stripe
+- Authentication: Better-Auth v1.3+
+- Linting and formatting: Biome with Ultracite presets
+- Captcha: Vercel BotID
+- Unit testing: Jest
+- Component testing: React testing library
+- End-to-end testing: Playwright
 
 ## Project Structure
 
 ```
 micarnet/
-├── apps/
-│   ├── web/         # Fullstack application (Next.js)
-│   └── worker/      # Background tasks, scraping, and data synchronization
-├── packages/
-│   ├── api/         # Shared API interfaces and business logic
-│   ├── auth/        # Authentication configuration
-│   └── db/          # Database schema and migrations
+├── apps/                       # Deployable entry points
+│   ├── web/                    # Fullstack Next.js
+│   │   ├── .next/
+│   │   ├── node_modules/
+│   │   ├── src/
+│   │   │   ├── app/
+│   │   │   ├── components/
+│   │   │   ├── lib/
+│   │   │   ├── ulits/
+│   │   │   └── index.css
+│   │   ├── .env
+│   │   ├── ...
+│   │   ├── next.config.ts
+│   │   └── tsconfig.json
+│   ├── ...
+│   └── worker/                 # Background scraping, tasks, and data synchronization
+│
+├── packages/                   # Shared, cross-cutting modules
+│   ├── api/                    # Shared API interfaces and business logic
+│   │   ├── node_modules/
+│   │   ├── src/
+│   │   ├── package.json
+│   │   ├── ...
+│   │   └── tsconfig.json
+│   ├── ...
+│   ├── auth/                   # Authentication configuration
+│   └── db/                     # Database schema and migrations
+│       ├── node_modules/
+│       ├── src/
+│       ├── package.json
+│       ├── ...
+│       └── tsconfig.json
+│
+├── ...
+└── turbo.json
 ```
 
 ## Clean Architecture & Monorepo Principles
