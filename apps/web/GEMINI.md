@@ -95,11 +95,6 @@ Write code that is **accessible, performant, type-safe, and maintainable**. Focu
 **React 19+:**
 - Use ref as a prop instead of `React.forwardRef`
 
-**Solid/Svelte/Vue/Qwik:**
-- Use `class` and `for` attributes (not `className` or `htmlFor`)
-
----
-
 ## Testing
 
 - Write assertions inside `it()` or `test()` blocks
