@@ -19,18 +19,28 @@
     "db:start": "turbo -F @micarnet/db db:start",
     "db:watch": "turbo -F @micarnet/db db:watch",
     "db:stop": "turbo -F @micarnet/db db:stop",
-    "db:down": "turbo -F @micarnet/db db:down"
+    "db:down": "turbo -F @micarnet/db db:down",
+    "prepare": "husky"
   },
   "dependencies": {
+    "@micarnet/env": "workspace:*",
     "dotenv": "catalog:",
-    "zod": "catalog:",
-    "@micarnet/env": "workspace:*"
+    "zod": "catalog:"
   },
   "devDependencies": {
+    "@biomejs/biome": "2.3.10",
+    "@micarnet/config": "workspace:*",
+    "@types/node": "^22.13.14",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.2.7",
     "turbo": "^2.6.3",
     "typescript": "catalog:",
-    "@types/node": "^22.13.14",
-    "@micarnet/config": "workspace:*"
+    "ultracite": "7.0.5"
   },
-  "packageManager": "pnpm@10.14.0"
+  "packageManager": "pnpm@10.14.0",
+  "lint-staged": {
+    "*.{js,jsx,ts,tsx,json,jsonc,css,scss,md,mdx}": [
+      "pnpm dlx ultracite fix"
+    ]
+  }
 }

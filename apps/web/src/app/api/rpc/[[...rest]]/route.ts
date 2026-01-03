@@ -5,7 +5,7 @@ import { OpenAPIReferencePlugin } from "@orpc/openapi/plugins";
 import { onError } from "@orpc/server";
 import { RPCHandler } from "@orpc/server/fetch";
 import { ZodToJsonSchemaConverter } from "@orpc/zod/zod4";
-import { NextRequest } from "next/server";
+import type { NextRequest } from "next/server";
 
 const rpcHandler = new RPCHandler(appRouter, {
   interceptors: [
@@ -32,13 +32,17 @@ async function handleRequest(req: NextRequest) {
     prefix: "/api/rpc",
     context: await createContext(req),
   });
-  if (rpcResult.response) return rpcResult.response;
+  if (rpcResult.response) {
+    return rpcResult.response;
+  }
 
   const apiResult = await apiHandler.handle(req, {
     prefix: "/api/rpc/api-reference",
     context: await createContext(req),
   });
-  if (apiResult.response) return apiResult.response;
+  if (apiResult.response) {
+    return apiResult.response;
+  }
 
   return new Response("Not found", { status: 404 });
 }

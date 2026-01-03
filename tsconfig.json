@@ -1,3 +1,6 @@
 {
-  "extends": "@micarnet/config/tsconfig.base.json"
+  "extends": "@micarnet/config/tsconfig.base.json",
+  "compilerOptions": {
+    "strictNullChecks": true
+  }
 }
