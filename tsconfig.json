@@ -1,0 +1,3 @@
+{
+  "extends": "@micarnet/config/tsconfig.base.json"
+}

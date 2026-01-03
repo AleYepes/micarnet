@@ -1,0 +1,36 @@
+{
+  "name": "micarnet",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "type": "module",
+  "scripts": {
+    "dev": "turbo dev",
+    "build": "turbo build",
+    "check-types": "turbo check-types",
+    "dev:native": "turbo -F native dev",
+    "dev:web": "turbo -F web dev",
+    "db:push": "turbo -F @micarnet/db db:push",
+    "db:studio": "turbo -F @micarnet/db db:studio",
+    "db:generate": "turbo -F @micarnet/db db:generate",
+    "db:migrate": "turbo -F @micarnet/db db:migrate",
+    "db:start": "turbo -F @micarnet/db db:start",
+    "db:watch": "turbo -F @micarnet/db db:watch",
+    "db:stop": "turbo -F @micarnet/db db:stop",
+    "db:down": "turbo -F @micarnet/db db:down"
+  },
+  "dependencies": {
+    "dotenv": "catalog:",
+    "zod": "catalog:",
+    "@micarnet/env": "workspace:*"
+  },
+  "devDependencies": {
+    "turbo": "^2.6.3",
+    "typescript": "catalog:",
+    "@types/node": "^22.13.14",
+    "@micarnet/config": "workspace:*"
+  },
+  "packageManager": "pnpm@10.14.0"
+}
