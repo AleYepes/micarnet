@@ -1,25 +1,36 @@
 import { relations } from "drizzle-orm";
-import { pgTable, text } from "drizzle-orm/pg-core";
+import { integer, pgSchema, text } from "drizzle-orm/pg-core";
 
-export const communities = pgTable("communities", {
+export const geoSchema = pgSchema("geo");
+
+export const communities = geoSchema.table("communities", {
   id: text("id").primaryKey(), // INE code (e.g., "01")
   name: text("name").notNull(),
+  ineId: integer("ine_id").unique(), // Internal INE ID
+  ineFkVariable: integer("ine_fk_variable"), // INE FK_Variable
+  ineFkJerarquiaPadres: integer("ine_fk_jerarquia_padres").array(),
 });
 
-export const provinces = pgTable("provinces", {
+export const provinces = geoSchema.table("provinces", {
   id: text("id").primaryKey(), // INE code (e.g., "28")
   name: text("name").notNull(),
   communityId: text("community_id")
     .notNull()
     .references(() => communities.id),
+  ineId: integer("ine_id").unique(), // Internal INE ID
+  ineFkVariable: integer("ine_fk_variable"), // INE FK_Variable
+  ineFkJerarquiaPadres: integer("ine_fk_jerarquia_padres").array(),
 });
 
-export const municipalities = pgTable("municipalities", {
+export const municipalities = geoSchema.table("municipalities", {
   id: text("id").primaryKey(), // 5-digit INE code (e.g., "28079")
   name: text("name").notNull(),
   provinceId: text("province_id")
     .notNull()
     .references(() => provinces.id),
+  ineId: integer("ine_id").unique(), // Internal INE ID
+  ineFkVariable: integer("ine_fk_variable"), // INE FK_Variable
+  ineFkJerarquiaPadres: integer("ine_fk_jerarquia_padres").array(),
 });
 
 export const communitiesRelations = relations(communities, ({ many }) => ({

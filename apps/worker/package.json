@@ -9,18 +9,19 @@
     "check-types": "tsc --noEmit"
   },
   "dependencies": {
+    "@micarnet/db": "workspace:*",
+    "@micarnet/env": "workspace:*",
     "axios": "^1.7.9",
     "cheerio": "1.0.0-rc.12",
-    "playwright": "^1.50.1",
     "dotenv": "catalog:",
-    "zod": "catalog:",
-    "@micarnet/env": "workspace:*",
-    "@micarnet/db": "workspace:*"
+    "drizzle-orm": "catalog:",
+    "playwright": "^1.50.1",
+    "zod": "catalog:"
   },
   "devDependencies": {
-    "typescript": "catalog:",
-    "tsx": "^4.19.3",
+    "@micarnet/config": "workspace:*",
     "@types/node": "^22.13.14",
-    "@micarnet/config": "workspace:*"
+    "tsx": "^4.19.3",
+    "typescript": "catalog:"
   }
 }
