@@ -56,6 +56,7 @@ micarnet/
 │       ├── ...
 │       └── tsconfig.json
 │
+├── node_modules/               # Monorepo dependencies
 ├── ...
 └── turbo.json
 ```
