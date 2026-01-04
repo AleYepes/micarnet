@@ -4,9 +4,9 @@
 
 To build the most comprehensive, accurate, and useful dataset of Spanish driving schools (autoescuelas) by synthesizing official government records with geospatial data and third-party enrichment.
 
-## 1. Architecture: The "Worker" App
+## 1. Architecture: Set up a "Worker" App
 
-App `apps/worker` to handle data ingestion, cleaning, and synchronization.
+Prepare `apps/worker` to handle data ingestion, cleaning, and synchronization.
     - Ensures strict separation of concerns, so heavy scraping dependencies (Playwright, cheerio, etc.) don't pollute the `apps/web` bundle.
     - `apps/worker`: The executable Node.js application to collect data (DGT, INE, Google).
     - `packages/db`: Shared Drizzle schema and client used by -both- `web` and `worker`.
@@ -17,7 +17,7 @@ DGT data contains corrupt or inconsistent location data, so we need varying sour
 
 ### Location Source A: INE API VARIABLES
 
-Create a seed script in `apps/worker` that calls the official INE JSON API (also known as Tempus3), and populates `communities`, `provinces`, and `municipalities` tables.
+Begin fleshing out the logic in `apps/worker` and `packages/db` to call the official INE JSON API, and to populate `communities`, `provinces`, and `municipalities` tables.
 
 #### 70: Communities
 
@@ -501,7 +501,7 @@ Import GeoJSON/Shapefiles into a PostGIS-enabled database (or store as simplifie
 
 ## 3. The Core: Autoescuela Registry (DGT)
 
-A. Re-implement the python scripts (`dgt_scraper.py` and `exam_scraper.py`) within `apps/worker` using TypeScript.
+A. Implement the reference python scripts in the root (`dgt_scraper.py` and `exam_scraper.py`) within `apps/worker` using TypeScript. Make sure they adhere with the schemas defined by the NIE and CNIG data.
 B. Normalization:
     - Scraper fetches a school
     - Worker attempts to match school data against `municipalities` table (e.g., "Alcalá de Henares").

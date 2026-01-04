@@ -10,6 +10,9 @@ import {
   userRelations,
   verification,
 } from "./schema/auth";
+
+import * as locations from "./schema/locations";
+import * as schools from "./schema/schools";
 import { todo } from "./schema/todo";
 
 export const schema = {
@@ -21,6 +24,8 @@ export const schema = {
   userRelations,
   verification,
   todo,
+  ...locations,
+  ...schools,
 };
 
 export const db = drizzle(env.DATABASE_URL, { schema });
