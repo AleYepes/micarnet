@@ -1,3 +1,4 @@
+// import { syncLocations } from "./fetch-ine-locations";
 import { syncIneStats } from "./fetch-ine-stats";
 
 async function main() {

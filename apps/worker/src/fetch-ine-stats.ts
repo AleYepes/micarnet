@@ -1,6 +1,10 @@
 import { db } from "@micarnet/db";
-import { communities } from "@micarnet/db/schema/locations";
-import { buckets, statsByCommunity } from "@micarnet/db/schema/stats";
+import { communities, municipalities } from "@micarnet/db/schema/locations";
+import {
+  buckets,
+  statsByCommunity,
+  statsByMunicipality,
+} from "@micarnet/db/schema/stats";
 import axios from "axios";
 
 const INE_DATOS_TABLA_BASE =
@@ -18,16 +22,22 @@ interface IneDataRow {
 
 async function fetchIneTable(
   tableId: number,
-  filter?: string
+  filters: string[] = []
 ): Promise<IneDataRow[]> {
   let url = `${INE_DATOS_TABLA_BASE}/${tableId}`;
-  if (filter) {
-    // If filter already contains 'tv=', don't add it again
-    const query = filter.startsWith("tv=") ? filter : `tv=${filter}`;
-    url += `?${query}`;
+  if (filters.length > 0) {
+    const queryString = filters
+      .map((f) => (f.startsWith("tv=") ? f : `tv=${f}`))
+      .join("&");
+    url += `?${queryString}`;
   }
-  const response = await axios.get<IneDataRow[]>(url);
-  return response.data;
+  try {
+    const response = await axios.get<IneDataRow[]>(url);
+    return response.data;
+  } catch (_error) {
+    // Return empty array on 404/500/No data to allow continuation
+    return [];
+  }
 }
 
 async function seedBuckets() {
@@ -68,67 +78,140 @@ export async function syncIneStats() {
   // 1. Sync Community Stats (Companies 73020 & Locales 294)
   console.log("Syncing Community Stats (CNAE 855)...");
   for (const comm of commRows) {
-    if (!(comm.ineId && comm.ineFkVariable)) continue;
+    if (!(comm.ineId && comm.ineFkVariable)) {
+      continue;
+    }
     console.log(`Processing Community: ${comm.name}...`);
 
-    const filterBase = `tv=338:18326&tv=${comm.ineFkVariable}:${comm.ineId}`;
+    const locationFilter = `${comm.ineFkVariable}:${comm.ineId}`;
+    const filters = ["338:18326", locationFilter]; // 338:18326 is CNAE 855
 
-    // Companies
-    const companies = await fetchIneTable(73_020, filterBase);
-    // Locales
-    const locales = await fetchIneTable(294, filterBase);
+    const [companies, locales] = await Promise.all([
+      fetchIneTable(73_020, filters),
+      fetchIneTable(294, filters),
+    ]);
 
-    // Helper to extract bucket and year data
-    const processRows = async (
-      rows: IneDataRow[],
-      type: "companies" | "locales"
-    ) => {
-      for (const row of rows) {
-        const bucketLabel = row.Nombre.split(". ")[1]?.trim() || "Total";
-        const bucket = bucketRows.find((b) =>
-          bucketLabel.includes(b.label.replace("asalariados", "").trim())
-        );
-        if (!bucket) continue;
+    const allRows = [...companies, ...locales];
 
-        for (const dp of row.Data) {
-          if (dp.Anyo < 2020) continue;
+    for (const row of allRows) {
+      const isCompany = companies.includes(row);
+      const bucketLabel = row.Nombre.split(". ")[1]?.trim() || "Total";
+      const bucket = bucketRows.find((b) =>
+        bucketLabel.includes(b.label.replace("asalariados", "").trim())
+      );
 
-          const update: any = {
-            communityId: comm.id,
-            employeeBucketId: bucket.id,
-            year: dp.Anyo,
-          };
-          if (type === "companies") update.cnae855CompanyCount = dp.Valor;
-          else update.cnae855LocaleCount = dp.Valor;
-
-          await db
-            .insert(statsByCommunity)
-            .values(update)
-            .onConflictDoUpdate({
-              target: [
-                statsByCommunity.communityId,
-                statsByCommunity.employeeBucketId,
-                statsByCommunity.year,
-              ],
-              set:
-                type === "companies"
-                  ? { cnae855CompanyCount: dp.Valor }
-                  : { cnae855LocaleCount: dp.Valor },
-            });
-        }
+      if (!bucket) {
+        continue;
       }
-    };
 
-    await processRows(companies, "companies");
-    await processRows(locales, "locales");
+      for (const dp of row.Data) {
+        if (dp.Anyo < 2020) {
+          continue;
+        }
+
+        const baseValues = {
+          communityId: comm.id,
+          employeeBucketId: bucket.id,
+          year: dp.Anyo,
+        };
+
+        await db
+          .insert(statsByCommunity)
+          .values(
+            isCompany
+              ? { ...baseValues, cnae855CompanyCount: dp.Valor }
+              : { ...baseValues, cnae855LocaleCount: dp.Valor }
+          )
+          .onConflictDoUpdate({
+            target: [
+              statsByCommunity.communityId,
+              statsByCommunity.employeeBucketId,
+              statsByCommunity.year,
+            ],
+            set: isCompany
+              ? { cnae855CompanyCount: dp.Valor }
+              : { cnae855LocaleCount: dp.Valor },
+          });
+      }
+    }
   }
 
-  // 2. Sync Municipality Stats (Population 29005 & Companies 4721)
-  // For municipalities, we limit to the most recent year to avoid huge fetches
-  // or we need a more targeted approach.
-  console.log("Syncing Municipality Stats (Recent)...");
-  // Implementation for municipalities would follow similar pattern but might need
-  // to be more selective to avoid rate limits/timeouts due to 8000+ municipalities.
+  // 2. Sync Municipality Stats
+  console.log("Syncing Municipality Stats...");
+  const muniRows = await db.select().from(municipalities);
+  console.log(
+    `Found ${muniRows.length} municipalities. This may take a while.`
+  );
+
+  const chunkSize = 20;
+  for (let i = 0; i < muniRows.length; i += chunkSize) {
+    const chunk = muniRows.slice(i, i + chunkSize);
+
+    await Promise.all(
+      chunk.map(async (muni) => {
+        if (!(muni.ineId && muni.ineFkVariable)) {
+          return;
+        }
+
+        const locationFilter = `${muni.ineFkVariable}:${muni.ineId}`;
+
+        // Fetch Population (Table 29005), Education Companies (Table 4721), and All Companies (Table 4721)
+        const [popData, eduCompData, allCompData] = await Promise.all([
+          fetchIneTable(29_005, ["18:451", locationFilter]),
+          fetchIneTable(4721, ["491:23100", locationFilter]),
+          fetchIneTable(4721, ["393:23092", locationFilter]),
+        ]);
+
+        const statsByYear = new Map<
+          number,
+          { pop?: number; edu?: number; all?: number }
+        >();
+
+        const addToMap = (rows: IneDataRow[], key: "pop" | "edu" | "all") => {
+          for (const row of rows) {
+            for (const dp of row.Data) {
+              if (dp.Anyo >= 2020) {
+                const entry = statsByYear.get(dp.Anyo) || {};
+                entry[key] = dp.Valor;
+                statsByYear.set(dp.Anyo, entry);
+              }
+            }
+          }
+        };
+
+        addToMap(popData, "pop");
+        addToMap(eduCompData, "edu");
+        addToMap(allCompData, "all");
+
+        for (const [year, data] of statsByYear.entries()) {
+          await db
+            .insert(statsByMunicipality)
+            .values({
+              municipalityId: muni.id,
+              year,
+              totalPopulation: data.pop ? Math.round(data.pop) : null,
+              sectionPCompaniesCount: data.edu ? Math.round(data.edu) : null,
+              allCompaniesCount: data.all ? Math.round(data.all) : null,
+            })
+            .onConflictDoUpdate({
+              target: [
+                statsByMunicipality.municipalityId,
+                statsByMunicipality.year,
+              ],
+              set: {
+                totalPopulation: data.pop ? Math.round(data.pop) : null,
+                sectionPCompaniesCount: data.edu ? Math.round(data.edu) : null,
+                allCompaniesCount: data.all ? Math.round(data.all) : null,
+              },
+            });
+        }
+      })
+    );
+
+    if (i % 100 === 0) {
+      console.log(`Processed ${i} / ${muniRows.length} municipalities...`);
+    }
+  }
 
   console.log("INE Stats Sync Complete.");
 }
