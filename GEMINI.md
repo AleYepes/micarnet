@@ -1,6 +1,6 @@
 # MiCarnet
 
-The definitive platform for Spanish residents to find, vet, and enroll in driving schools, and for autoescuelas to manage their operations.
+The definitive platform for Spanish autoescuelas. Its purpose is to help residents find, vet, and enroll in driving schools, and to help autoescuelas find students and manage their operations.
 
 ## Features
 
@@ -15,6 +15,7 @@ The definitive platform for Spanish residents to find, vet, and enroll in drivin
 - Authentication: Better-Auth v1.3+
 - Linting and formatting: Biome with Ultracite presets
 - Captcha: Vercel BotID
+- Autofill: Meilisearch
 - Unit testing: Jest
 - Component testing: React testing library
 - End-to-end testing: Playwright

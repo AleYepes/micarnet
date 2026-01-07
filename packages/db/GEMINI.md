@@ -1,60 +1,59 @@
 # Database Schema & Architecture
 
-This package manages the PostgreSQL database using Drizzle ORM. PostgreSQL Schemas organize data into logical domains for applications.
+This package manages the PostgreSQL database using Drizzle ORM with PostGIS extensions for advanced geospatial capabilities.
 
 ## Schema Organization
 
 ### 1. `auth`
 
-Manages identity and session data.
-
-- Includes: User identity, sessions, accounts, and verification tokens.
-- Purpose: Provides core authentication. User profiles and roles link to this identity from the `public` schema.
+Manages BetterAuth identity, sessions, accounts, and verification tokens. Linked to `public` entities.
 
 ### 2. `geo`
 
-Stores administrative geographical data for Spain.
+Stores hierarchical administrative boundaries and shapes for Point-in-Polygon queries.
 
-- Includes: Communities, Provinces, and Municipalities.
-- Keying: Uses the official INE Code (Código INE) as the Primary Key (e.g., "28079" for Madrid).
-- Implementation: Keys are stored as `text` types to preserve critical leading zeros (e.g., "01" for Andalucía).
-- Note: This schema enables hierarchical filtering (Region -> Province -> Municipality). Sub-municipality precision relies on Postal Codes and coordinates.
+Hierarchy:
+
+- `communities` (Admin Level 4)
+- `provinces` (Admin Level 6)
+- `municipalities` (Admin Level 8)
+- `neighborhoods` (Admin Level 9-10)
 
 ### 3. `stats`
 
-Contains third-party statistical data.
-
-- Includes: DGT (Pass rates), INE (Population and Business counts).
-- Structure: Tables are often aggregated by region or municipality. Metadata tables track source URLs and sync timestamps.
+Contains official statistics (DGT school exam pass rates, population counts, business counts, regional income, etc) organized by metadata tables, often aggregated by province or municipality.
 
 ### 4. `public` (Default)
 
-Contains the core application business logic.
+Contains the core application business logic (WIP)
 
-- Entities:
-  - `schools`: Business entities.
-  - `school_locations`: Physical offices or practice tracks.
-  - `students` & `instructors`: User profiles linked to `auth` identities.
+- `schools`: Business entities.
+- `school_locations`: Physical offices or practice tracks.
+- `students` & `instructors`: User profiles linked to `auth` identities.
 - Transactions: Packages, classes, bookings, and messaging records.
 - Keying: Uses UUIDs for all internal records.
 
 ## Data Integration Sources
 
-### 1. DGT Registry (School Data)
+### 1. NIE
 
-The application pre-populates the `schools` and `school_locations` tables using the official DGT list of certified driving schools. This ensures comprehensive market coverage from launch.
+The primary source for administrative locations, not including neighborhoods, and for goventment statistics.
 
-### 2. CartoCiudad (Address Resolution)
+### 2. OpenStreetMap/Geofabrik
 
-To handle the bulk processing of DGT records, the application ingests the CartoCiudad dataset (approx. <1GB).
+Location source to refine and elaborate official regions into PostGIS-compatible boundaries/polygons.
 
-- Purpose: Resolves the raw addresses provided by the DGT into precise coordinates and normalized street names.
-- Storage: The `school_locations` table stores:
-  - Normalized Address: The official spelling.
-  - Coordinates: Latitude and Longitude.
-  - Reference IDs: CartoCiudad ID and Postal Code.
-  - Administrative Link: A foreign key to the `geo` schema's Municipality.
-  - Any other features we find (still need to explore)
+### 3. DGT Registry
+
+The official list of certified driving schools and exams.
+
+### 4. CartoCiudad
+
+A Geocoding engine to validate and elaborate DGT data. Possibly
+
+### 5. Places API
+
+A second Geocoding engine to validate and elaborate DGT data. Primarily for reviews, images, and other rich business data.
 
 ## ID Strategy
 

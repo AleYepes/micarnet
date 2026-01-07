@@ -2,7 +2,7 @@ name: micarnet
 
 services:
   postgres:
-    image: postgres
+    image: postgis/postgis
     container_name: micarnet-postgres
     environment:
       POSTGRES_DB: micarnet
