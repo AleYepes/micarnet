@@ -1,5 +1,5 @@
 import { relations } from "drizzle-orm";
-import { integer, pgSchema, text } from "drizzle-orm/pg-core";
+import { integer, jsonb, pgSchema, text } from "drizzle-orm/pg-core";
 
 export const geoSchema = pgSchema("geo");
 
@@ -9,6 +9,17 @@ export const communities = geoSchema.table("communities", {
   ineId: integer("ine_id").unique(), // Internal INE ID
   ineFkVariable: integer("ine_fk_variable"), // INE FK_Variable
   ineFkJerarquiaPadres: integer("ine_fk_jerarquia_padres").array(),
+  // OSM Data
+  osmName: text("osm_name"),
+  adminLevel: integer("admin_level"),
+  tags: jsonb("tags"),
+  // Parsed OSM Tags
+  population: integer("population"),
+  populationDate: integer("population_date"),
+  ineCcaa: integer("ine_ccaa"),
+  ineProvincia: integer("ine_provincia"),
+  ineMunicipio: integer("ine_municipio"),
+  geometry: jsonb("geometry"),
 });
 
 export const provinces = geoSchema.table("provinces", {
@@ -20,6 +31,17 @@ export const provinces = geoSchema.table("provinces", {
   ineId: integer("ine_id").unique(), // Internal INE ID
   ineFkVariable: integer("ine_fk_variable"), // INE FK_Variable
   ineFkJerarquiaPadres: integer("ine_fk_jerarquia_padres").array(),
+  // OSM Data
+  osmName: text("osm_name"),
+  adminLevel: integer("admin_level"),
+  tags: jsonb("tags"),
+  // Parsed OSM Tags
+  population: integer("population"),
+  populationDate: integer("population_date"),
+  ineCcaa: integer("ine_ccaa"),
+  ineProvincia: integer("ine_provincia"),
+  ineMunicipio: integer("ine_municipio"),
+  geometry: jsonb("geometry"),
 });
 
 export const municipalities = geoSchema.table("municipalities", {
@@ -31,6 +53,36 @@ export const municipalities = geoSchema.table("municipalities", {
   ineId: integer("ine_id").unique(), // Internal INE ID
   ineFkVariable: integer("ine_fk_variable"), // INE FK_Variable
   ineFkJerarquiaPadres: integer("ine_fk_jerarquia_padres").array(),
+  // OSM Data
+  osmName: text("osm_name"),
+  adminLevel: integer("admin_level"),
+  tags: jsonb("tags"),
+  // Parsed OSM Tags
+  population: integer("population"),
+  populationDate: integer("population_date"),
+  ineCcaa: integer("ine_ccaa"),
+  ineProvincia: integer("ine_provincia"),
+  ineMunicipio: integer("ine_municipio"),
+  geometry: jsonb("geometry"),
+});
+
+export const neighborhoods = geoSchema.table("neighborhoods", {
+  id: text("id").primaryKey(), // Custom ID
+  name: text("name").notNull(),
+  municipalityId: text("municipality_id")
+    .notNull()
+    .references(() => municipalities.id),
+  // OSM Data
+  osmName: text("osm_name"),
+  adminLevel: integer("admin_level"),
+  tags: jsonb("tags"),
+  // Parsed OSM Tags
+  population: integer("population"),
+  populationDate: integer("population_date"),
+  ineCcaa: integer("ine_ccaa"),
+  ineProvincia: integer("ine_provincia"),
+  ineMunicipio: integer("ine_municipio"),
+  geometry: jsonb("geometry"),
 });
 
 export const communitiesRelations = relations(communities, ({ many }) => ({
@@ -45,9 +97,20 @@ export const provincesRelations = relations(provinces, ({ one, many }) => ({
   municipalities: many(municipalities),
 }));
 
-export const municipalitiesRelations = relations(municipalities, ({ one }) => ({
-  province: one(provinces, {
-    fields: [municipalities.provinceId],
-    references: [provinces.id],
+export const municipalitiesRelations = relations(
+  municipalities,
+  ({ one, many }) => ({
+    province: one(provinces, {
+      fields: [municipalities.provinceId],
+      references: [provinces.id],
+    }),
+    neighborhoods: many(neighborhoods),
+  })
+);
+
+export const neighborhoodsRelations = relations(neighborhoods, ({ one }) => ({
+  municipality: one(municipalities, {
+    fields: [neighborhoods.municipalityId],
+    references: [municipalities.id],
   }),
 }));

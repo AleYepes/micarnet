@@ -7,6 +7,7 @@ node_modules
 dist
 build
 *.tsbuildinfo
+*osm.pbf
 
 # Environment variables
 .env

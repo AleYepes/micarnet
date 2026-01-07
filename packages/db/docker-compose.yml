@@ -2,7 +2,7 @@ name: micarnet
 
 services:
   postgres:
-    image: postgis/postgis
+    image: postgres:18-alpine
     container_name: micarnet-postgres
     environment:
       POSTGRES_DB: micarnet
@@ -11,7 +11,7 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - micarnet_postgres_data:/var/lib/postgresql
+      - postgres_data:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
@@ -20,4 +20,4 @@ services:
     restart: unless-stopped
 
 volumes:
-  micarnet_postgres_data:
+  postgres_data:

@@ -20,16 +20,17 @@
     "db:down": "docker compose down"
   },
   "devDependencies": {
-    "drizzle-kit": "^0.31.8",
+    "@micarnet/config": "workspace:*",
     "@types/pg": "catalog:",
-    "typescript": "catalog:",
-    "@micarnet/config": "workspace:*"
+    "drizzle-kit": "^0.31.8",
+    "tsx": "^4.21.0",
+    "typescript": "catalog:"
   },
   "dependencies": {
+    "@micarnet/env": "workspace:*",
+    "dotenv": "catalog:",
     "drizzle-orm": "catalog:",
     "pg": "^8.16.3",
-    "dotenv": "catalog:",
-    "zod": "catalog:",
-    "@micarnet/env": "workspace:*"
+    "zod": "catalog:"
   }
 }

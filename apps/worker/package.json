@@ -11,11 +11,17 @@
   "dependencies": {
     "@micarnet/db": "workspace:*",
     "@micarnet/env": "workspace:*",
+    "@types/fs-extra": "^11.0.4",
+    "@types/string-similarity": "^4.0.2",
     "axios": "^1.7.9",
     "cheerio": "1.0.0-rc.12",
     "dotenv": "catalog:",
     "drizzle-orm": "catalog:",
+    "fs-extra": "^11.3.3",
+    "osm-pbf-parser-node": "^1.1.4",
+    "osmtogeojson": "3.0.0-beta.5",
     "playwright": "^1.50.1",
+    "string-similarity": "^4.0.4",
     "zod": "catalog:"
   },
   "devDependencies": {

@@ -1,6 +1,6 @@
 # Database Schema & Architecture
 
-This package manages the PostgreSQL database using Drizzle ORM with PostGIS extensions for advanced geospatial capabilities.
+This package manages the PostgreSQL database using Drizzle ORM.
 
 ## Schema Organization
 
@@ -10,7 +10,7 @@ Manages BetterAuth identity, sessions, accounts, and verification tokens. Linked
 
 ### 2. `geo`
 
-Stores hierarchical administrative boundaries and shapes for Point-in-Polygon queries.
+Stores hierarchical administrative boundaries and shapes.
 
 Hierarchy:
 
@@ -39,13 +39,13 @@ Contains the core application business logic (WIP)
 
 The primary source for administrative locations, not including neighborhoods, and for goventment statistics.
 
-### 2. OpenStreetMap/Geofabrik
-
-Location source to refine and elaborate official regions into PostGIS-compatible boundaries/polygons.
-
-### 3. DGT Registry
+### 2. DGT Registry
 
 The official list of certified driving schools and exams.
+
+### 3. OpenStreetMap/Geofabrik
+
+Location Polygon source to add neighborhoods and refine official regions and schools point in polygon checks using turf.js.
 
 ### 4. CartoCiudad
 
