@@ -14,8 +14,9 @@ export const statsSchema = pgSchema("stats");
 // Metadata tracking table
 export const metadata = statsSchema.table("metadata", {
   id: serial("id").primaryKey(),
-  tableId: integer("table_id").notNull().unique(),
-  tableName: text("table_name").notNull(),
+  ineTableId: integer("ine_table_id").notNull().unique(),
+  name: text("name").notNull(),
+  description: text("description"),
   sourceUrl: text("source_url").notNull(),
   lastScraped: timestamp("last_scraped"),
   recordCount: integer("record_count"),
@@ -23,11 +24,10 @@ export const metadata = statsSchema.table("metadata", {
 
 export const buckets = statsSchema.table("employee_buckets", {
   id: serial("id").primaryKey(),
-  code: text("code").notNull().unique(), // Derived code
-  label: text("label").notNull(), // "Sin asalariados", "De 1 a 2", etc.
+  name: text("name").notNull().unique(), // The INE label (e.g., "Sin asalariados")
   minEmployees: integer("min_employees"),
   maxEmployees: integer("max_employees"),
-  sortOrder: integer("sort_order").notNull(),
+  isTotal: integer("is_total").default(0).notNull(), // 0 = false, 1 = true (using int for simplicity or boolean)
 });
 
 // Education companies by community & employee count
@@ -35,7 +35,7 @@ export const statsByCommunity = statsSchema.table(
   "stats_by_community",
   {
     id: serial("id").primaryKey(),
-    communityId: text("community_id")
+    communityId: integer("community_id")
       .notNull()
       .references(() => communities.id),
     employeeBucketId: integer("employee_bucket_id")
@@ -60,7 +60,7 @@ export const statsByMunicipality = statsSchema.table(
   "stats_by_municipality",
   {
     id: serial("id").primaryKey(),
-    municipalityId: text("municipality_id")
+    municipalityId: integer("municipality_id")
       .notNull()
       .references(() => municipalities.id),
     year: integer("year").notNull(),

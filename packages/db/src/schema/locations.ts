@@ -4,8 +4,7 @@ import { integer, jsonb, pgSchema, text } from "drizzle-orm/pg-core";
 export const geoSchema = pgSchema("geo");
 
 export const communities = geoSchema.table("communities", {
-  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
-  code: text("code").unique().notNull(), // INE code (e.g., "01")
+  id: integer("id").primaryKey(), // INE code converted to int (e.g., "01" -> 1)
   name: text("name").notNull(),
   ineId: integer("ine_id").unique(), // Internal INE ID
   ineFkVariable: integer("ine_fk_variable"), // INE FK_Variable
@@ -18,8 +17,7 @@ export const communities = geoSchema.table("communities", {
 });
 
 export const provinces = geoSchema.table("provinces", {
-  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
-  code: text("code").unique().notNull(), // INE code (e.g., "28")
+  id: integer("id").primaryKey(), // INE code converted to int (e.g., "28" -> 28)
   name: text("name").notNull(),
   communityId: integer("community_id")
     .notNull()
@@ -35,8 +33,7 @@ export const provinces = geoSchema.table("provinces", {
 });
 
 export const municipalities = geoSchema.table("municipalities", {
-  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
-  code: text("code").unique().notNull(), // 5-digit INE code (e.g., "28079")
+  id: integer("id").primaryKey(), // 5-digit INE code converted to int (e.g., "28079" -> 28079)
   name: text("name").notNull(),
   provinceId: integer("province_id")
     .notNull()
@@ -52,8 +49,7 @@ export const municipalities = geoSchema.table("municipalities", {
 });
 
 export const neighborhoods = geoSchema.table("neighborhoods", {
-  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
-  osmId: text("osm_id").unique(), // e.g. "osm-relation-123"
+  id: integer("id").primaryKey(), // OSM ID as integer
   name: text("name").notNull(),
   municipalityId: integer("municipality_id")
     .notNull()

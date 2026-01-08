@@ -31,14 +31,14 @@ export async function syncLocations() {
   // 1. Communities (Variable 70)
   console.log("Fetching communities...");
   const rawCommunities = await fetchIneVariable(70);
-  const communityMap = new Map<number, string>(); // INE ID -> Codigo
+  const communityIneIdToCode = new Map<number, string>(); // INE ID -> Codigo (string)
 
   const communitiesToInsert = rawCommunities
     .filter((c) => c.Codigo && c.Codigo.length === 2 && c.FK_JerarquiaPadres)
     .map((c) => {
-      communityMap.set(c.Id, c.Codigo);
+      communityIneIdToCode.set(c.Id, c.Codigo);
       return {
-        code: c.Codigo,
+        id: Number.parseInt(c.Codigo, 10),
         name: c.Nombre,
         ineId: c.Id,
         ineFkVariable: c.FK_Variable,
@@ -52,7 +52,7 @@ export async function syncLocations() {
       .insert(communities)
       .values(community)
       .onConflictDoUpdate({
-        target: communities.code,
+        target: communities.id,
         set: {
           name: community.name,
           ineId: community.ineId,
@@ -62,46 +62,36 @@ export async function syncLocations() {
       });
   }
 
-  // Fetch inserted communities to get integer IDs
-  const insertedComms = await db.select().from(communities);
-  const commIdMap = new Map<string, number>(); // code -> id
-  for (const c of insertedComms) {
-    commIdMap.set(c.code, c.id);
-  }
-
   // 2. Provinces (Variable 20)
   console.log("Fetching provinces...");
   const rawProvinces = await fetchIneVariable(20);
-  const provinceMap = new Map<number, string>(); // INE ID -> Codigo
+  const provinceIneIdToCode = new Map<number, string>(); // INE ID -> Codigo (string)
 
   const provincesToInsert = rawProvinces
     .filter((p) => {
       const isProvince = p.Codigo && p.Codigo.length === 2;
       const hasParent = p.FK_JerarquiaPadres?.some((id) =>
-        communityMap.has(id)
+        communityIneIdToCode.has(id)
       );
       return isProvince && hasParent;
     })
     .map((p) => {
       const communityIneId = p.FK_JerarquiaPadres?.find((id) =>
-        communityMap.has(id)
+        communityIneIdToCode.has(id)
       );
       if (!communityIneId) {
         throw new Error(`Province ${p.Nombre} has no valid community parent`);
       }
-      const communityCode = communityMap.get(communityIneId);
-      if (!communityCode) {
+      const communityCodeStr = communityIneIdToCode.get(communityIneId);
+      if (!communityCodeStr) {
         throw new Error(
           `Community Code not found for INE ID ${communityIneId}`
         );
       }
-      const communityId = commIdMap.get(communityCode);
-      if (communityId === undefined) {
-        throw new Error(`Community ID not found for Code ${communityCode}`);
-      }
-      provinceMap.set(p.Id, p.Codigo);
+      const communityId = Number.parseInt(communityCodeStr, 10);
+      provinceIneIdToCode.set(p.Id, p.Codigo);
       return {
-        code: p.Codigo,
+        id: Number.parseInt(p.Codigo, 10),
         name: p.Nombre,
         communityId,
         ineId: p.Id,
@@ -116,7 +106,7 @@ export async function syncLocations() {
       .insert(provinces)
       .values(province)
       .onConflictDoUpdate({
-        target: provinces.code,
+        target: provinces.id,
         set: {
           name: province.name,
           communityId: province.communityId,
@@ -125,13 +115,6 @@ export async function syncLocations() {
           ineFkJerarquiaPadres: province.ineFkJerarquiaPadres,
         },
       });
-  }
-
-  // Fetch inserted provinces to get integer IDs
-  const insertedProvs = await db.select().from(provinces);
-  const provIdMap = new Map<string, number>(); // code -> id
-  for (const p of insertedProvs) {
-    provIdMap.set(p.code, p.id);
   }
 
   // 3. Municipalities (Variable 19)
@@ -145,29 +128,26 @@ export async function syncLocations() {
         "Población en municipios desaparecidos"
       );
       const hasProvince = m.FK_JerarquiaPadres?.some((id) =>
-        provinceMap.has(id)
+        provinceIneIdToCode.has(id)
       );
       return isMunicipality && notDeleted && hasProvince;
     })
     .map((m) => {
       const provinceIneId = m.FK_JerarquiaPadres?.find((id) =>
-        provinceMap.has(id)
+        provinceIneIdToCode.has(id)
       );
       if (!provinceIneId) {
         throw new Error(
           `Municipality ${m.Nombre} has no valid province parent`
         );
       }
-      const provinceCode = provinceMap.get(provinceIneId);
-      if (!provinceCode) {
+      const provinceCodeStr = provinceIneIdToCode.get(provinceIneId);
+      if (!provinceCodeStr) {
         throw new Error(`Province Code not found for INE ID ${provinceIneId}`);
       }
-      const provinceId = provIdMap.get(provinceCode);
-      if (provinceId === undefined) {
-        throw new Error(`Province ID not found for Code ${provinceCode}`);
-      }
+      const provinceId = Number.parseInt(provinceCodeStr, 10);
       return {
-        code: m.Codigo,
+        id: Number.parseInt(m.Codigo, 10),
         name: m.Nombre.trim(),
         provinceId,
         ineId: m.Id,
@@ -186,7 +166,7 @@ export async function syncLocations() {
           .insert(municipalities)
           .values(m)
           .onConflictDoUpdate({
-            target: municipalities.code,
+            target: municipalities.id,
             set: {
               name: m.name,
               provinceId: m.provinceId,

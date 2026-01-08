@@ -42,19 +42,74 @@ async function fetchIneTable(
 
 async function seedBuckets() {
   const employeeBucketsData = [
-    { code: "total", label: "Total", sortOrder: 0 },
-    { code: "0", label: "Sin asalariados", sortOrder: 1 },
-    { code: "1-2", label: "De 1 a 2 asalariados", sortOrder: 2 },
-    { code: "3-5", label: "De 3 a 5 asalariados", sortOrder: 3 },
-    { code: "6-9", label: "De 6 a 9 asalariados", sortOrder: 4 },
-    { code: "10-19", label: "De 10 a 19 asalariados", sortOrder: 5 },
-    { code: "20-49", label: "De 20 a 49 asalariados", sortOrder: 6 },
-    { code: "50-99", label: "De 50 a 99 asalariados", sortOrder: 7 },
-    { code: "100-249", label: "De 100 a 249 asalariados", sortOrder: 8 },
-    { code: "250-499", label: "De 250 a 499 asalariados", sortOrder: 9 },
-    { code: "500-999", label: "De 500 a 999 asalariados", sortOrder: 10 },
-    { code: "1000-4999", label: "De 1.000 a 4.999 asalariados", sortOrder: 11 },
-    { code: "5000+", label: "De 5.000 o más asalariados", sortOrder: 12 },
+    { name: "Total", minEmployees: 0, maxEmployees: null, isTotal: 1 },
+    { name: "Sin asalariados", minEmployees: 0, maxEmployees: 0, isTotal: 0 },
+    {
+      name: "De 1 a 2 asalariados",
+      minEmployees: 1,
+      maxEmployees: 2,
+      isTotal: 0,
+    },
+    {
+      name: "De 3 a 5 asalariados",
+      minEmployees: 3,
+      maxEmployees: 5,
+      isTotal: 0,
+    },
+    {
+      name: "De 6 a 9 asalariados",
+      minEmployees: 6,
+      maxEmployees: 9,
+      isTotal: 0,
+    },
+    {
+      name: "De 10 a 19 asalariados",
+      minEmployees: 10,
+      maxEmployees: 19,
+      isTotal: 0,
+    },
+    {
+      name: "De 20 a 49 asalariados",
+      minEmployees: 20,
+      maxEmployees: 49,
+      isTotal: 0,
+    },
+    {
+      name: "De 50 a 99 asalariados",
+      minEmployees: 50,
+      maxEmployees: 99,
+      isTotal: 0,
+    },
+    {
+      name: "De 100 a 249 asalariados",
+      minEmployees: 100,
+      maxEmployees: 249,
+      isTotal: 0,
+    },
+    {
+      name: "De 250 a 499 asalariados",
+      minEmployees: 250,
+      maxEmployees: 499,
+      isTotal: 0,
+    },
+    {
+      name: "De 500 a 999 asalariados",
+      minEmployees: 500,
+      maxEmployees: 999,
+      isTotal: 0,
+    },
+    {
+      name: "De 1.000 a 4.999 asalariados",
+      minEmployees: 1000,
+      maxEmployees: 4999,
+      isTotal: 0,
+    },
+    {
+      name: "De 5.000 o más asalariados",
+      minEmployees: 5000,
+      maxEmployees: null,
+      isTotal: 0,
+    },
   ];
 
   for (const bucket of employeeBucketsData) {
@@ -71,6 +126,32 @@ async function seedBuckets() {
 export async function syncIneStats() {
   console.log("Starting INE Stats Sync...");
   await seedBuckets();
+
+  // Seed Metadata for known tables
+  await seedMetadata(
+    73_020,
+    "Empresas por CCAA (CNAE 855)",
+    "Empresas por CCAA, actividad principal (855) y estrato de asalariados.",
+    "https://servicios.ine.es/wstempus/js/ES/DATOS_TABLA/73020"
+  );
+  await seedMetadata(
+    294,
+    "Locales por CCAA (CNAE 855)",
+    "Locales por CCAA, actividad principal (855) y estrato de asalariados.",
+    "https://servicios.ine.es/wstempus/js/ES/DATOS_TABLA/294"
+  );
+  await seedMetadata(
+    4721,
+    "Empresas por municipio",
+    "Empresas por municipio y actividad principal",
+    "https://servicios.ine.es/wstempus/js/ES/DATOS_TABLA/4721"
+  );
+  await seedMetadata(
+    29_005,
+    "Padrón por municipio",
+    "Cifras oficiales del padrón por municipio",
+    "https://servicios.ine.es/wstempus/js/ES/DATOS_TABLA/29005"
+  );
 
   const bucketRows = await db.select().from(buckets);
   const commRows = await db.select().from(communities);
@@ -111,10 +192,12 @@ async function processCommunity(
 
   for (const row of allRows) {
     const isCompany = companies.includes(row);
-    const bucketLabel = row.Nombre.split(". ")[1]?.trim() || "Total";
-    const bucket = bucketRows.find((b) =>
-      bucketLabel.includes(b.label.replace("asalariados", "").trim())
-    );
+
+    // Improved matching logic:
+    // The Nombre contains segments like "Nacional. Sin asalariados. Total. 855 Otra educación."
+    // We try to match segments against our bucket names.
+    const segments = row.Nombre.split(".").map((s) => s.trim());
+    const bucket = bucketRows.find((b) => segments.includes(b.name));
 
     if (!bucket) {
       continue;

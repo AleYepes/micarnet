@@ -509,7 +509,7 @@ async function loadOfficialBoundaries() {
       c.id,
       {
         id: c.id,
-        code: c.code,
+        code: c.id.toString().padStart(2, "0"),
         officialName: c.name,
         osmName: c.osmName,
         osmPopulation: c.osmPopulation,
@@ -524,7 +524,7 @@ async function loadOfficialBoundaries() {
       p.id,
       {
         id: p.id,
-        code: p.code,
+        code: p.id.toString().padStart(2, "0"),
         officialName: p.name,
         osmName: p.osmName,
         osmPopulation: p.osmPopulation,
@@ -540,7 +540,7 @@ async function loadOfficialBoundaries() {
       m.id,
       {
         id: m.id,
-        code: m.code,
+        code: m.id.toString().padStart(5, "0"),
         officialName: m.name,
         osmName: m.osmName,
         osmPopulation: m.osmPopulation,
@@ -661,7 +661,7 @@ async function processNeighborhoods(
         await db
           .insert(neighborhoods)
           .values({
-            osmId: `osm-${cand.rel.id}`,
+            id: cand.rel.id,
             name: cand.rel.tags?.name || "Unknown",
             municipalityId: parentMuniId,
             osmAdminLevel: Number.parseInt(adminLevelStr, 10),
@@ -675,7 +675,7 @@ async function processNeighborhoods(
               : null,
           })
           .onConflictDoUpdate({
-            target: neighborhoods.osmId,
+            target: neighborhoods.id,
             set: { osmGeometry: cand.geometry },
           });
       }
