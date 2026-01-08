@@ -6,7 +6,6 @@ import {
   statsByMunicipality,
 } from "@micarnet/db/schema/stats";
 import axios from "axios";
-import { eq } from "drizzle-orm";
 
 const INE_DATOS_TABLA_BASE =
   "https://servicios.ine.es/wstempus/js/ES/DATOS_TABLA";
@@ -157,19 +156,9 @@ async function syncMunicipalityStats() {
   console.log("Syncing Municipality Stats...");
   const muniRows = await db.select().from(municipalities);
 
-  // Check which municipalities already have stats for a recent year to skip them
-  const recentYear = 2024;
-  const existingStats = await db
-    .select({ municipalityId: statsByMunicipality.municipalityId })
-    .from(statsByMunicipality)
-    .where(eq(statsByMunicipality.year, recentYear));
+  const munisToProcess = muniRows;
 
-  const existingMuniIds = new Set(existingStats.map((s) => s.municipalityId));
-  const munisToProcess = muniRows.filter((m) => !existingMuniIds.has(m.id));
-
-  console.log(
-    `Found ${muniRows.length} municipalities. ${munisToProcess.length} need syncing.`
-  );
+  console.log(`Found ${muniRows.length} municipalities. Processing all.`);
 
   const chunkSize = 20;
   for (let i = 0; i < munisToProcess.length; i += chunkSize) {

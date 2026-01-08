@@ -11,8 +11,10 @@
   "dependencies": {
     "@micarnet/db": "workspace:*",
     "@micarnet/env": "workspace:*",
+    "@turf/bbox": "^7.3.1",
     "@turf/boolean-point-in-polygon": "^7.3.1",
     "@turf/helpers": "^7.3.1",
+    "@turf/union": "^7.3.1",
     "@types/fs-extra": "^11.0.4",
     "@types/string-similarity": "^4.0.2",
     "axios": "^1.7.9",

@@ -6,10 +6,13 @@ import {
   neighborhoods,
   provinces,
 } from "@micarnet/db/schema/locations";
+import bbox from "@turf/bbox";
 import booleanPointInPolygon from "@turf/boolean-point-in-polygon";
-import { point } from "@turf/helpers";
+import type { Feature, MultiPolygon, Polygon } from "@turf/helpers";
+import { feature, featureCollection, point } from "@turf/helpers";
+import { union } from "@turf/union";
 import axios from "axios";
-import { eq, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import fs from "fs-extra";
 import { createOSMStream } from "osm-pbf-parser-node";
 import osmtogeojson from "osmtogeojson";
@@ -73,19 +76,30 @@ interface OsmRelation extends OsmBase {
 
 type OsmItem = OsmNode | OsmWay | OsmRelation;
 
+interface BoundaryCandidate {
+  geometry: GeoJSON.Geometry;
+  osmName: string | null;
+  ineCode: string | null;
+  similarity: number;
+  population: number | null;
+  populationDate: number | null;
+}
+
+interface BoundaryData {
+  id: number;
+  code: string;
+  officialName: string;
+  osmName: string | null;
+  osmPopulation: number | null;
+  osmPopulationDate: number | null;
+  osmGeometry: GeoJSON.Geometry | null;
+  communityId?: number;
+  provinceId?: number;
+  candidates: BoundaryCandidate[];
+}
+
 async function downloadFile(url: string, dest: string) {
   if (await fs.pathExists(dest)) {
-    const stats = await fs.stat(dest);
-    // If file is too small, it's likely corrupted or an error page
-    if (stats.size > 1024 * 10) {
-      console.log(
-        `File already exists and seems valid: ${dest} (${(stats.size / 1024 / 1024).toFixed(2)} MB)`
-      );
-      return;
-    }
-    console.log(
-      `File exists but is too small (${stats.size} bytes). Redownloading...`
-    );
     await fs.remove(dest);
   }
 
@@ -94,7 +108,7 @@ async function downloadFile(url: string, dest: string) {
     url,
     method: "GET",
     responseType: "stream",
-    timeout: 600_000, // 10 minutes timeout for large downloads
+    timeout: 600_000,
   });
 
   const writer = fs.createWriteStream(dest);
@@ -106,7 +120,9 @@ async function downloadFile(url: string, dest: string) {
       resolve();
     });
     writer.on("error", (err) => {
-      fs.remove(dest).catch(() => {}); // Try to cleanup
+      fs.remove(dest).catch(() => {
+        /* ignore cleanup error */
+      });
       reject(err);
     });
   });
@@ -120,60 +136,31 @@ function normalize(text: string) {
     .trim();
 }
 
-async function identifyRelevantRelations(
-  filePath: string,
-  matchedCommunityId: string
-) {
+async function identifyRelevantRelations(filePath: string) {
   const relations: OsmRelation[] = [];
   const requiredWays = new Set<number>();
 
   for await (const item of createOSMStream(filePath)) {
     const osmItem = item as OsmItem;
 
-    if (isRelevantAdminRelation(osmItem, matchedCommunityId)) {
-      relations.push(osmItem);
-      for (const member of osmItem.members) {
-        if (member.type === "way") {
-          requiredWays.add(member.ref);
+    if (
+      osmItem.type === "relation" &&
+      osmItem.tags?.boundary === "administrative"
+    ) {
+      const adminLevelStr = osmItem.tags.admin_level || "0";
+      const adminLevel = Number.parseInt(adminLevelStr, 10);
+      if (adminLevel >= 4 && adminLevel <= 10) {
+        relations.push(osmItem);
+        for (const member of osmItem.members) {
+          if (member.type === "way") {
+            requiredWays.add(member.ref);
+          }
         }
       }
     }
   }
 
   return { relations, requiredWays };
-}
-
-function isRelevantAdminRelation(
-  item: OsmItem,
-  matchedCommunityId: string
-): item is OsmRelation {
-  if (item.type !== "relation") {
-    return false;
-  }
-
-  const adminLevel = item.tags?.admin_level
-    ? Number.parseInt(item.tags.admin_level, 10)
-    : null;
-
-  if (
-    item.tags?.boundary !== "administrative" ||
-    adminLevel === null ||
-    adminLevel < 4 ||
-    adminLevel > 10
-  ) {
-    return false;
-  }
-
-  // Basic check: if it has ine:ccaa, it must match our community
-  const ineCcaa = item.tags["ine:ccaa"]
-    ? Number.parseInt(item.tags["ine:ccaa"], 10)
-    : null;
-
-  if (ineCcaa !== null && ineCcaa !== Number.parseInt(matchedCommunityId, 10)) {
-    return false;
-  }
-
-  return true;
 }
 
 async function collectWaysAndNodes(
@@ -210,18 +197,38 @@ async function collectNodeCoordinates(
   return nodes;
 }
 
-interface GeoJsonFeature {
-  type: string;
-  geometry: any;
-  properties: Record<string, unknown>;
+function ensureClosedRings(geometry: GeoJSON.Geometry): GeoJSON.Geometry {
+  if (!(geometry && "coordinates" in geometry)) {
+    return geometry;
+  }
+
+  const closeRing = (ring: number[][]) => {
+    if (ring.length === 0) {
+      return ring;
+    }
+    const first = ring[0];
+    const last = ring.at(-1);
+    if (first && last && (first[0] !== last[0] || first[1] !== last[1])) {
+      ring.push([first[0], first[1]]);
+    }
+    return ring;
+  };
+
+  if (geometry.type === "Polygon") {
+    geometry.coordinates = geometry.coordinates.map(closeRing);
+  } else if (geometry.type === "MultiPolygon") {
+    geometry.coordinates = geometry.coordinates.map((poly) =>
+      poly.map(closeRing)
+    );
+  }
+  return geometry;
 }
 
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Necessary complexity for data matching
-async function getGeometryForRelation(
+function getGeometryForRelation(
   rel: OsmRelation,
   ways: Map<number, OsmWay>,
   nodes: Map<number, [number, number]>
-) {
+): GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon> | undefined {
   const osmData: { elements: (OsmRelation | OsmWay | OsmNode)[] } = {
     elements: [rel],
   };
@@ -232,10 +239,11 @@ async function getGeometryForRelation(
       const way = ways.get(member.ref);
       if (way && !addedElements.has(`way/${member.ref}`)) {
         addedElements.add(`way/${member.ref}`);
-        osmData.elements.push({
+        const elementsWithNodes = {
           ...way,
-          nodes: way.refs, // osmtogeojson expects 'nodes', not 'refs'
-        });
+          nodes: way.refs,
+        } as OsmWay & { nodes: number[] };
+        osmData.elements.push(elementsWithNodes);
         for (const nodeId of way.refs) {
           const node = nodes.get(nodeId);
           if (node && !addedElements.has(`node/${nodeId}`)) {
@@ -252,182 +260,423 @@ async function getGeometryForRelation(
     }
   }
 
-  const geojson = osmtogeojson(osmData) as { features: GeoJsonFeature[] };
-  return geojson.features.find(
+  const geojson = osmtogeojson(osmData) as GeoJSON.FeatureCollection;
+  const found = geojson.features.find(
     (f) => f.geometry.type === "Polygon" || f.geometry.type === "MultiPolygon"
-  );
+  ) as GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon> | undefined;
+
+  if (found) {
+    found.geometry = ensureClosedRings(found.geometry) as
+      | GeoJSON.Polygon
+      | GeoJSON.MultiPolygon;
+  }
+  return found;
 }
 
-async function processRegion(url: string) {
+function findTargets(
+  adminLevel: number,
+  matchedCommunity: BoundaryData,
+  relevantProvinces: BoundaryData[],
+  relevantMunicipalities: BoundaryData[]
+): { targets: BoundaryData[]; tagKey: string } {
+  if (adminLevel === 4) {
+    return { targets: [matchedCommunity], tagKey: "ine:ccaa" };
+  }
+  if (adminLevel === 6) {
+    return { targets: relevantProvinces, tagKey: "ine:provincia" };
+  }
+  return { targets: relevantMunicipalities, tagKey: "ine:municipio" };
+}
+
+function matchRelationToTargets(
+  rel: OsmRelation,
+  geometry: GeoJSON.Geometry,
+  targets: BoundaryData[],
+  tagKey: string,
+  adminLevel: number
+) {
+  const itemIneCode = rel.tags?.[tagKey]?.padStart(
+    adminLevel === 8 ? 5 : 2,
+    "0"
+  );
+  const osmName = rel.tags?.name || "";
+
+  for (const target of targets) {
+    const nameSimilarity = stringSimilarity.compareTwoStrings(
+      normalize(osmName),
+      normalize(target.officialName)
+    );
+
+    let isCandidate = false;
+    if (itemIneCode) {
+      if (itemIneCode === target.code || nameSimilarity > 0.6) {
+        isCandidate = true;
+      }
+    } else if (nameSimilarity > 0.6) {
+      isCandidate = true;
+    }
+
+    if (isCandidate) {
+      target.candidates.push({
+        geometry,
+        osmName,
+        ineCode: itemIneCode || null,
+        similarity: nameSimilarity,
+        population: rel.tags?.population
+          ? Number.parseInt(rel.tags.population, 10)
+          : null,
+        populationDate: rel.tags?.["population:date"]
+          ? Number.parseInt(rel.tags["population:date"], 10)
+          : null,
+      });
+    }
+  }
+}
+
+async function processRegion(
+  url: string,
+  communityMap: Map<number, BoundaryData>,
+  provinceMap: Map<number, BoundaryData>,
+  municipalityMap: Map<number, BoundaryData>,
+  neighborhoodCandidates: { rel: OsmRelation; geometry: GeoJSON.Geometry }[]
+) {
   const filename = path.basename(url);
   const filePath = path.join(TEMP_DIR, filename);
   const regionSlug = filename.replace("-latest.osm.pbf", "").replace(/-/g, " ");
 
   await downloadFile(url, filePath);
+  console.log(`Processing ${regionSlug}...`);
 
-  console.log(`Processing ${regionSlug} (${filename})...`);
-
-  const allCommunities = await db.select().from(communities);
+  const allComms = Array.from(communityMap.values());
   const matches = stringSimilarity.findBestMatch(
     normalize(regionSlug),
-    allCommunities.map((c) => normalize(c.name))
+    allComms.map((c) => normalize(c.officialName))
   );
 
-  const matchedCommunity = allCommunities[matches.bestMatchIndex];
+  const matchedCommunity = allComms[matches.bestMatchIndex];
   if (!matchedCommunity || matches.bestMatch.rating < 0.3) {
-    console.warn(`No strong match for ${regionSlug}. Skipping.`);
+    console.warn(`No strong match for ${regionSlug}.`);
     return;
   }
 
-  console.log(
-    `Matched '${regionSlug}' to '${matchedCommunity.name}' (${matches.bestMatch.rating.toFixed(2)})`
-  );
-
-  const communityProvinces = await db
-    .select()
-    .from(provinces)
-    .where(eq(provinces.communityId, matchedCommunity.id));
-  const provinceIds = communityProvinces.map((p) => p.id);
-  const communityMunicipalities = await db
-    .select()
-    .from(municipalities)
-    .where(sql`${municipalities.provinceId} IN ${provinceIds}`);
-
-  const { relations, requiredWays } = await identifyRelevantRelations(
-    filePath,
-    matchedCommunity.id
-  );
-
+  const { relations, requiredWays } = await identifyRelevantRelations(filePath);
   const { ways, requiredNodes } = await collectWaysAndNodes(
     filePath,
     requiredWays
   );
-
   const nodes = await collectNodeCoordinates(filePath, requiredNodes);
 
-  console.log(
-    `Found ${relations.length} administrative relations. Sorting by admin_level...`
+  const relevantProvinces = Array.from(provinceMap.values()).filter(
+    (p) => p.communityId === matchedCommunity.id
+  );
+  const relevantMunicipalities = Array.from(municipalityMap.values()).filter(
+    (m) => m.provinceId && relevantProvinces.some((p) => p.id === m.provinceId)
   );
 
-  // Sort relations so that levels 4, 6, 8 are processed before 9, 10
-  relations.sort((a, b) => {
-    const alvl = Number.parseInt(a.tags?.admin_level || "0", 10);
-    const blvl = Number.parseInt(b.tags?.admin_level || "0", 10);
-    return alvl - blvl;
+  for (const rel of relations) {
+    const adminLevelStr = rel.tags?.admin_level || "0";
+    const adminLevel = Number.parseInt(adminLevelStr, 10);
+    const featureData = getGeometryForRelation(rel, ways, nodes);
+    if (!featureData) {
+      continue;
+    }
+
+    if (adminLevel === 9 || adminLevel === 10) {
+      neighborhoodCandidates.push({ rel, geometry: featureData.geometry });
+      continue;
+    }
+
+    const { targets, tagKey } = findTargets(
+      adminLevel,
+      matchedCommunity,
+      relevantProvinces,
+      relevantMunicipalities
+    );
+
+    matchRelationToTargets(
+      rel,
+      featureData.geometry,
+      targets,
+      tagKey,
+      adminLevel
+    );
+  }
+}
+
+function filterByContainment(
+  candidates: BoundaryCandidate[],
+  parentGeometry: GeoJSON.Geometry
+): BoundaryCandidate[] {
+  const parentFeat = feature(parentGeometry);
+  const contained = candidates.filter((c) => {
+    let testPoint: number[] | null = null;
+    if (c.geometry.type === "Polygon") {
+      testPoint = c.geometry.coordinates[0][0];
+    } else if (c.geometry.type === "MultiPolygon") {
+      testPoint = c.geometry.coordinates[0][0][0];
+    }
+    return testPoint
+      ? booleanPointInPolygon(point(testPoint), parentFeat)
+      : true;
+  });
+  return contained.length > 0 ? contained : candidates;
+}
+
+function mergeCandidates(
+  target: BoundaryData,
+  candidates: BoundaryCandidate[]
+) {
+  console.log(
+    `Merging ${candidates.length} candidates for ${target.officialName} (${target.code})`
+  );
+  try {
+    let merged = feature(candidates[0].geometry) as Feature<
+      Polygon | MultiPolygon
+    >;
+    let totalPop = candidates[0].population || 0;
+    let popCount = candidates[0].population ? 1 : 0;
+
+    for (let i = 1; i < candidates.length; i++) {
+      const next = union(
+        featureCollection([
+          merged,
+          feature(candidates[i].geometry) as Feature<Polygon | MultiPolygon>,
+        ])
+      );
+      if (next) {
+        merged = next as Feature<Polygon | MultiPolygon>;
+      }
+      const population = candidates[i].population;
+      if (population) {
+        totalPop += population;
+        popCount++;
+      }
+    }
+    target.osmGeometry = ensureClosedRings(merged.geometry);
+    target.osmName = candidates[0].osmName;
+    target.osmPopulation =
+      popCount > 0 ? Math.round(totalPop / popCount) : null;
+  } catch (e) {
+    console.error(`Failed to union candidates for ${target.code}:`, e);
+    const best = candidates.sort((a, b) => b.similarity - a.similarity)[0];
+    target.osmGeometry = best.geometry;
+    target.osmName = best.osmName;
+  }
+}
+
+function resolveCandidates(
+  target: BoundaryData,
+  parentGeometry: GeoJSON.Geometry | null
+): void {
+  let filtered = [...target.candidates];
+  if (filtered.length === 0) {
+    return;
+  }
+
+  const withCorrectCode = filtered.filter((c) => c.ineCode === target.code);
+  if (withCorrectCode.length > 0) {
+    filtered = withCorrectCode;
+  }
+
+  if (filtered.length > 1) {
+    const maxSim = Math.max(...filtered.map((c) => c.similarity));
+    filtered = filtered.filter((c) => c.similarity === maxSim);
+  }
+
+  if (filtered.length > 1 && parentGeometry) {
+    filtered = filterByContainment(filtered, parentGeometry);
+  }
+
+  if (filtered.length === 1) {
+    target.osmGeometry = filtered[0].geometry;
+    target.osmName = filtered[0].osmName;
+    target.osmPopulation = filtered[0].population;
+    target.osmPopulationDate = filtered[0].populationDate;
+  } else if (filtered.length > 1) {
+    mergeCandidates(target, filtered);
+  }
+}
+
+async function loadOfficialBoundaries() {
+  const [comms, provs, munis] = await Promise.all([
+    db.select().from(communities),
+    db.select().from(provinces),
+    db.select().from(municipalities),
+  ]);
+
+  const communityMap = new Map<number, BoundaryData>(
+    comms.map((c) => [
+      c.id,
+      {
+        id: c.id,
+        code: c.code,
+        officialName: c.name,
+        osmName: c.osmName,
+        osmPopulation: c.osmPopulation,
+        osmPopulationDate: c.osmPopulationDate,
+        osmGeometry: c.osmGeometry as GeoJSON.Geometry | null,
+        candidates: [],
+      },
+    ])
+  );
+  const provinceMap = new Map<number, BoundaryData>(
+    provs.map((p) => [
+      p.id,
+      {
+        id: p.id,
+        code: p.code,
+        officialName: p.name,
+        osmName: p.osmName,
+        osmPopulation: p.osmPopulation,
+        osmPopulationDate: p.osmPopulationDate,
+        osmGeometry: p.osmGeometry as GeoJSON.Geometry | null,
+        communityId: p.communityId,
+        candidates: [],
+      },
+    ])
+  );
+  const municipalityMap = new Map<number, BoundaryData>(
+    munis.map((m) => [
+      m.id,
+      {
+        id: m.id,
+        code: m.code,
+        officialName: m.name,
+        osmName: m.osmName,
+        osmPopulation: m.osmPopulation,
+        osmPopulationDate: m.osmPopulationDate,
+        osmGeometry: m.osmGeometry as GeoJSON.Geometry | null,
+        provinceId: m.provinceId,
+        candidates: [],
+      },
+    ])
+  );
+
+  return { communityMap, provinceMap, municipalityMap };
+}
+
+async function saveBoundaries(
+  communityMap: Map<number, BoundaryData>,
+  provinceMap: Map<number, BoundaryData>,
+  municipalityMap: Map<number, BoundaryData>
+) {
+  console.log("Saving boundaries to database...");
+  for (const c of communityMap.values()) {
+    if (c.osmGeometry) {
+      await db
+        .update(communities)
+        .set({
+          osmGeometry: c.osmGeometry,
+          osmName: c.osmName,
+          osmPopulation: c.osmPopulation,
+          osmPopulationDate: c.osmPopulationDate,
+        })
+        .where(eq(communities.id, c.id));
+    }
+  }
+  for (const p of provinceMap.values()) {
+    if (p.osmGeometry) {
+      await db
+        .update(provinces)
+        .set({
+          osmGeometry: p.osmGeometry,
+          osmName: p.osmName,
+          osmPopulation: p.osmPopulation,
+          osmPopulationDate: p.osmPopulationDate,
+        })
+        .where(eq(provinces.id, p.id));
+    }
+  }
+
+  const munisWithGeo = Array.from(municipalityMap.values()).filter(
+    (m) => m.osmGeometry
+  );
+  const chunkSize = 50;
+  for (let i = 0; i < munisWithGeo.length; i += chunkSize) {
+    const chunk = munisWithGeo.slice(i, i + chunkSize);
+    await Promise.all(
+      chunk.map((m) =>
+        db
+          .update(municipalities)
+          .set({
+            osmGeometry: m.osmGeometry,
+            osmName: m.osmName,
+            osmPopulation: m.osmPopulation,
+            osmPopulationDate: m.osmPopulationDate,
+          })
+          .where(eq(municipalities.id, m.id))
+      )
+    );
+  }
+  return munisWithGeo;
+}
+
+async function processNeighborhoods(
+  neighborhoodCandidates: { rel: OsmRelation; geometry: GeoJSON.Geometry }[],
+  munisWithGeo: BoundaryData[]
+) {
+  console.log(
+    "Processing neighborhoods using resolved municipality geometries..."
+  );
+  const munisWithBbox = munisWithGeo.map((m) => {
+    const geom = m.osmGeometry;
+    if (!geom) {
+      throw new Error(`Missing geometry for municipality ${m.id}`);
+    }
+    return {
+      id: m.id,
+      geometry: geom,
+      bbox: bbox(feature(geom)),
+    };
   });
 
-  const processedMunicipalities: { id: string; geometry: any }[] = [];
+  for (const cand of neighborhoodCandidates) {
+    let testPoint: number[] | null = null;
+    if (cand.geometry.type === "Polygon") {
+      testPoint = cand.geometry.coordinates[0][0];
+    } else if (cand.geometry.type === "MultiPolygon") {
+      testPoint = cand.geometry.coordinates[0][0][0];
+    }
 
-  for (const rel of relations) {
-    const adminLevel = Number.parseInt(rel.tags?.admin_level || "0", 10);
-    const feature = await getGeometryForRelation(rel, ways, nodes);
-    if (!feature) continue;
+    if (testPoint) {
+      const [lon, lat] = testPoint;
+      let parentMuniId: number | null = null;
 
-    const baseData = {
-      osmName: rel.tags?.name,
-      adminLevel,
-      population: rel.tags?.population
-        ? Number.parseInt(rel.tags.population, 10)
-        : null,
-      populationDate: rel.tags?.["population:date"]
-        ? Number.parseInt(rel.tags["population:date"], 10)
-        : null,
-      geometry: feature.geometry,
-    };
-
-    if (adminLevel === 4) {
-      const ineCcaa = rel.tags?.["ine:ccaa"]
-        ? Number.parseInt(rel.tags["ine:ccaa"], 10)
-        : null;
-      if (ineCcaa === Number.parseInt(matchedCommunity.id, 10)) {
-        await db
-          .update(communities)
-          .set(baseData)
-          .where(eq(communities.id, matchedCommunity.id));
-        matchedCommunity.geometry = feature.geometry;
-      }
-    } else if (adminLevel === 6) {
-      const ineProv = rel.tags?.["ine:provincia"]
-        ? rel.tags["ine:provincia"].padStart(2, "0")
-        : null;
-      if (ineProv) {
-        const targetProv = communityProvinces.find((p) => p.id === ineProv);
-        if (targetProv) {
-          await db
-            .update(provinces)
-            .set(baseData)
-            .where(eq(provinces.id, ineProv));
-          targetProv.geometry = feature.geometry;
-        }
-      }
-    } else if (adminLevel === 8) {
-      const ineMuni = rel.tags?.["ine:municipio"]
-        ? rel.tags["ine:municipio"].padStart(5, "0")
-        : null;
-      if (ineMuni) {
-        const targetMuni = communityMunicipalities.find(
-          (m) => m.id === ineMuni
-        );
-        if (targetMuni) {
-          await db
-            .update(municipalities)
-            .set(baseData)
-            .where(eq(municipalities.id, ineMuni));
-          targetMuni.geometry = feature.geometry;
-          processedMunicipalities.push({
-            id: ineMuni,
-            geometry: feature.geometry,
-          });
-        }
-      }
-    } else if (adminLevel >= 9) {
-      // Spatial matching for neighborhoods
-      let parentMuniId: string | null = null;
-
-      // Try to find a representative point (first vertex of the first ring)
-      let testPoint: any = null;
-      if (feature.geometry.type === "Polygon") {
-        testPoint = feature.geometry.coordinates[0][0];
-      } else if (feature.geometry.type === "MultiPolygon") {
-        testPoint = feature.geometry.coordinates[0][0][0];
-      }
-
-      if (testPoint) {
-        const pt = point(testPoint);
-        // Check against processed municipalities in memory first
-        for (const muni of processedMunicipalities) {
-          if (booleanPointInPolygon(pt, muni.geometry)) {
-            parentMuniId = muni.id;
-            break;
-          }
-        }
-
-        // If not found in memory (maybe it was already in DB), fallback to a subset of communityMunicipalities
-        if (!parentMuniId) {
-          for (const muni of communityMunicipalities) {
-            if (
-              muni.geometry &&
-              booleanPointInPolygon(pt, muni.geometry as any)
-            ) {
-              parentMuniId = muni.id;
-              break;
-            }
-          }
+      for (const m of munisWithBbox) {
+        const [minX, minY, maxX, maxY] = m.bbox;
+        if (
+          lon >= minX &&
+          lon <= maxX &&
+          lat >= minY &&
+          lat <= maxY &&
+          booleanPointInPolygon(point(testPoint), feature(m.geometry))
+        ) {
+          parentMuniId = m.id;
+          break;
         }
       }
 
       if (parentMuniId) {
+        const adminLevelStr = cand.rel.tags?.admin_level || "9";
         await db
           .insert(neighborhoods)
           .values({
-            id: `osm-${rel.id}`,
-            name: rel.tags?.name || "Unknown",
+            osmId: `osm-${cand.rel.id}`,
+            name: cand.rel.tags?.name || "Unknown",
             municipalityId: parentMuniId,
-            ...baseData,
+            osmAdminLevel: Number.parseInt(adminLevelStr, 10),
+            osmGeometry: cand.geometry,
+            osmName: cand.rel.tags?.name,
+            osmPopulation: cand.rel.tags?.population
+              ? Number.parseInt(cand.rel.tags.population, 10)
+              : null,
+            osmPopulationDate: cand.rel.tags?.["population:date"]
+              ? Number.parseInt(cand.rel.tags["population:date"], 10)
+              : null,
           })
           .onConflictDoUpdate({
-            target: neighborhoods.id,
-            set: baseData,
+            target: neighborhoods.osmId,
+            set: { osmGeometry: cand.geometry },
           });
       }
     }
@@ -436,11 +685,53 @@ async function processRegion(url: string) {
 
 export async function syncOsmBoundaries() {
   await fs.ensureDir(TEMP_DIR);
+
+  console.log("Loading official location names from DB...");
+  const { communityMap, provinceMap, municipalityMap } =
+    await loadOfficialBoundaries();
+
+  const neighborhoodCandidates: {
+    rel: OsmRelation;
+    geometry: GeoJSON.Geometry;
+  }[] = [];
+
   for (const url of REGION_URLS) {
     try {
-      await processRegion(url);
+      await processRegion(
+        url,
+        communityMap,
+        provinceMap,
+        municipalityMap,
+        neighborhoodCandidates
+      );
     } catch (error) {
       console.error(`Error processing URL ${url}:`, error);
     }
   }
+
+  console.log("Resolving candidates for each level...");
+
+  for (const c of communityMap.values()) {
+    resolveCandidates(c, null);
+  }
+
+  for (const p of provinceMap.values()) {
+    const parent = p.communityId ? communityMap.get(p.communityId) : null;
+    resolveCandidates(p, parent?.osmGeometry || null);
+  }
+
+  for (const m of municipalityMap.values()) {
+    const parent = m.provinceId ? provinceMap.get(m.provinceId) : null;
+    resolveCandidates(m, parent?.osmGeometry || null);
+  }
+
+  const munisWithGeo = await saveBoundaries(
+    communityMap,
+    provinceMap,
+    municipalityMap
+  );
+
+  await processNeighborhoods(neighborhoodCandidates, munisWithGeo);
+
+  console.log("OSM Boundary Sync Complete.");
 }

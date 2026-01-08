@@ -22,7 +22,7 @@ The definitive platform for Spanish autoescuelas. Its purpose is to help residen
 
 ## Project Structure
 
-```
+```bash
 micarnet/
 ├── apps/                       # Deployable entry points
 │   ├── web/                    # Fullstack Next.js

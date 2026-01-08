@@ -9,7 +9,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 import { user } from "./auth";
-import { municipalities } from "./locations";
+import { neighborhoods } from "./locations";
 
 // --- Marketplace Core ---
 
@@ -37,7 +37,7 @@ export const schoolLocations = pgTable("school_locations", {
   schoolId: uuid("school_id")
     .notNull()
     .references(() => schools.id, { onDelete: "cascade" }),
-  municipalityId: text("municipality_id").references(() => municipalities.id),
+  neighborhoodId: integer("neighborhood_id").references(() => neighborhoods.id),
 
   name: text("name").notNull(), // e.g. "Oficina Centro"
   address: text("address").notNull(),
@@ -71,7 +71,7 @@ export const students = pgTable("students", {
     .references(() => user.id, { onDelete: "cascade" })
     .unique(), // 1:1 with User
   currentLicense: text("current_license"), // "None", "B_Theory", "B_Practical"
-  municipalityId: text("municipality_id").references(() => municipalities.id),
+  neighborhoodId: integer("neighborhood_id").references(() => neighborhoods.id),
 
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at")
@@ -192,9 +192,9 @@ export const schoolLocationsRelations = relations(
       fields: [schoolLocations.schoolId],
       references: [schools.id],
     }),
-    municipality: one(municipalities, {
-      fields: [schoolLocations.municipalityId],
-      references: [municipalities.id],
+    neighborhood: one(neighborhoods, {
+      fields: [schoolLocations.neighborhoodId],
+      references: [neighborhoods.id],
     }),
   })
 );
@@ -203,6 +203,10 @@ export const studentsRelations = relations(students, ({ one, many }) => ({
   user: one(user, {
     fields: [students.userId],
     references: [user.id],
+  }),
+  neighborhood: one(neighborhoods, {
+    fields: [students.neighborhoodId],
+    references: [neighborhoods.id],
   }),
   classes: many(classes),
 }));

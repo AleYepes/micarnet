@@ -5,7 +5,6 @@ import {
   provinces,
 } from "@micarnet/db/schema/locations";
 import axios from "axios";
-import { count } from "drizzle-orm";
 
 const INE_API_BASE = "https://servicios.ine.es/wstempus/js/ES/VALORES_VARIABLE";
 
@@ -27,17 +26,6 @@ async function fetchIneVariable(
 }
 
 export async function syncLocations() {
-  console.log("Checking if locations need sync...");
-  const muniCountResult = await db
-    .select({ value: count() })
-    .from(municipalities);
-  if (muniCountResult[0].value > 8000) {
-    console.log(
-      `Already have ${muniCountResult[0].value} municipalities. Skipping location sync.`
-    );
-    return;
-  }
-
   console.log("Starting location sync (with internal INE IDs)...");
 
   // 1. Communities (Variable 70)
@@ -50,7 +38,7 @@ export async function syncLocations() {
     .map((c) => {
       communityMap.set(c.Id, c.Codigo);
       return {
-        id: c.Codigo,
+        code: c.Codigo,
         name: c.Nombre,
         ineId: c.Id,
         ineFkVariable: c.FK_Variable,
@@ -64,7 +52,7 @@ export async function syncLocations() {
       .insert(communities)
       .values(community)
       .onConflictDoUpdate({
-        target: communities.id,
+        target: communities.code,
         set: {
           name: community.name,
           ineId: community.ineId,
@@ -72,6 +60,13 @@ export async function syncLocations() {
           ineFkJerarquiaPadres: community.ineFkJerarquiaPadres,
         },
       });
+  }
+
+  // Fetch inserted communities to get integer IDs
+  const insertedComms = await db.select().from(communities);
+  const commIdMap = new Map<string, number>(); // code -> id
+  for (const c of insertedComms) {
+    commIdMap.set(c.code, c.id);
   }
 
   // 2. Provinces (Variable 20)
@@ -94,13 +89,19 @@ export async function syncLocations() {
       if (!communityIneId) {
         throw new Error(`Province ${p.Nombre} has no valid community parent`);
       }
-      const communityId = communityMap.get(communityIneId);
-      if (!communityId) {
-        throw new Error(`Community ID not found for INE ID ${communityIneId}`);
+      const communityCode = communityMap.get(communityIneId);
+      if (!communityCode) {
+        throw new Error(
+          `Community Code not found for INE ID ${communityIneId}`
+        );
+      }
+      const communityId = commIdMap.get(communityCode);
+      if (communityId === undefined) {
+        throw new Error(`Community ID not found for Code ${communityCode}`);
       }
       provinceMap.set(p.Id, p.Codigo);
       return {
-        id: p.Codigo,
+        code: p.Codigo,
         name: p.Nombre,
         communityId,
         ineId: p.Id,
@@ -115,7 +116,7 @@ export async function syncLocations() {
       .insert(provinces)
       .values(province)
       .onConflictDoUpdate({
-        target: provinces.id,
+        target: provinces.code,
         set: {
           name: province.name,
           communityId: province.communityId,
@@ -124,6 +125,13 @@ export async function syncLocations() {
           ineFkJerarquiaPadres: province.ineFkJerarquiaPadres,
         },
       });
+  }
+
+  // Fetch inserted provinces to get integer IDs
+  const insertedProvs = await db.select().from(provinces);
+  const provIdMap = new Map<string, number>(); // code -> id
+  for (const p of insertedProvs) {
+    provIdMap.set(p.code, p.id);
   }
 
   // 3. Municipalities (Variable 19)
@@ -150,12 +158,16 @@ export async function syncLocations() {
           `Municipality ${m.Nombre} has no valid province parent`
         );
       }
-      const provinceId = provinceMap.get(provinceIneId);
-      if (!provinceId) {
-        throw new Error(`Province ID not found for INE ID ${provinceIneId}`);
+      const provinceCode = provinceMap.get(provinceIneId);
+      if (!provinceCode) {
+        throw new Error(`Province Code not found for INE ID ${provinceIneId}`);
+      }
+      const provinceId = provIdMap.get(provinceCode);
+      if (provinceId === undefined) {
+        throw new Error(`Province ID not found for Code ${provinceCode}`);
       }
       return {
-        id: m.Codigo,
+        code: m.Codigo,
         name: m.Nombre.trim(),
         provinceId,
         ineId: m.Id,
@@ -174,7 +186,7 @@ export async function syncLocations() {
           .insert(municipalities)
           .values(m)
           .onConflictDoUpdate({
-            target: municipalities.id,
+            target: municipalities.code,
             set: {
               name: m.name,
               provinceId: m.provinceId,
