@@ -6,6 +6,7 @@ import {
   statsByMunicipality,
 } from "@micarnet/db/schema/stats";
 import axios from "axios";
+import { eq } from "drizzle-orm";
 
 const INE_DATOS_TABLA_BASE =
   "https://servicios.ine.es/wstempus/js/ES/DATOS_TABLA";
@@ -155,17 +156,30 @@ async function processCommunity(
 async function syncMunicipalityStats() {
   console.log("Syncing Municipality Stats...");
   const muniRows = await db.select().from(municipalities);
+
+  // Check which municipalities already have stats for a recent year to skip them
+  const recentYear = 2024;
+  const existingStats = await db
+    .select({ municipalityId: statsByMunicipality.municipalityId })
+    .from(statsByMunicipality)
+    .where(eq(statsByMunicipality.year, recentYear));
+
+  const existingMuniIds = new Set(existingStats.map((s) => s.municipalityId));
+  const munisToProcess = muniRows.filter((m) => !existingMuniIds.has(m.id));
+
   console.log(
-    `Found ${muniRows.length} municipalities. This may take a while.`
+    `Found ${muniRows.length} municipalities. ${munisToProcess.length} need syncing.`
   );
 
   const chunkSize = 20;
-  for (let i = 0; i < muniRows.length; i += chunkSize) {
-    const chunk = muniRows.slice(i, i + chunkSize);
+  for (let i = 0; i < munisToProcess.length; i += chunkSize) {
+    const chunk = munisToProcess.slice(i, i + chunkSize);
     await Promise.all(chunk.map(processMunicipality));
 
     if (i % 100 === 0) {
-      console.log(`Processed ${i} / ${muniRows.length} municipalities...`);
+      console.log(
+        `Processed ${i} / ${munisToProcess.length} municipalities...`
+      );
     }
   }
 }

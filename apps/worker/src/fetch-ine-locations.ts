@@ -5,6 +5,7 @@ import {
   provinces,
 } from "@micarnet/db/schema/locations";
 import axios from "axios";
+import { count } from "drizzle-orm";
 
 const INE_API_BASE = "https://servicios.ine.es/wstempus/js/ES/VALORES_VARIABLE";
 
@@ -26,6 +27,17 @@ async function fetchIneVariable(
 }
 
 export async function syncLocations() {
+  console.log("Checking if locations need sync...");
+  const muniCountResult = await db
+    .select({ value: count() })
+    .from(municipalities);
+  if (muniCountResult[0].value > 8000) {
+    console.log(
+      `Already have ${muniCountResult[0].value} municipalities. Skipping location sync.`
+    );
+    return;
+  }
+
   console.log("Starting location sync (with internal INE IDs)...");
 
   // 1. Communities (Variable 70)

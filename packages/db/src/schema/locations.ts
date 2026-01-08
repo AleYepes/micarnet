@@ -12,13 +12,9 @@ export const communities = geoSchema.table("communities", {
   // OSM Data
   osmName: text("osm_name"),
   adminLevel: integer("admin_level"),
-  tags: jsonb("tags"),
   // Parsed OSM Tags
   population: integer("population"),
   populationDate: integer("population_date"),
-  ineCcaa: integer("ine_ccaa"),
-  ineProvincia: integer("ine_provincia"),
-  ineMunicipio: integer("ine_municipio"),
   geometry: jsonb("geometry"),
 });
 
@@ -34,13 +30,9 @@ export const provinces = geoSchema.table("provinces", {
   // OSM Data
   osmName: text("osm_name"),
   adminLevel: integer("admin_level"),
-  tags: jsonb("tags"),
   // Parsed OSM Tags
   population: integer("population"),
   populationDate: integer("population_date"),
-  ineCcaa: integer("ine_ccaa"),
-  ineProvincia: integer("ine_provincia"),
-  ineMunicipio: integer("ine_municipio"),
   geometry: jsonb("geometry"),
 });
 
@@ -56,13 +48,9 @@ export const municipalities = geoSchema.table("municipalities", {
   // OSM Data
   osmName: text("osm_name"),
   adminLevel: integer("admin_level"),
-  tags: jsonb("tags"),
   // Parsed OSM Tags
   population: integer("population"),
   populationDate: integer("population_date"),
-  ineCcaa: integer("ine_ccaa"),
-  ineProvincia: integer("ine_provincia"),
-  ineMunicipio: integer("ine_municipio"),
   geometry: jsonb("geometry"),
 });
 
@@ -75,13 +63,9 @@ export const neighborhoods = geoSchema.table("neighborhoods", {
   // OSM Data
   osmName: text("osm_name"),
   adminLevel: integer("admin_level"),
-  tags: jsonb("tags"),
   // Parsed OSM Tags
   population: integer("population"),
   populationDate: integer("population_date"),
-  ineCcaa: integer("ine_ccaa"),
-  ineProvincia: integer("ine_provincia"),
-  ineMunicipio: integer("ine_municipio"),
   geometry: jsonb("geometry"),
 });
 
