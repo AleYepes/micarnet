@@ -15,9 +15,9 @@ Stores hierarchical administrative boundaries and shapes.
 Hierarchy:
 
 - `communities` (Admin Level 4)
-- `provinces` (Admin Level 6)
-- `municipalities` (Admin Level 8)
-- `neighborhoods` (Admin Level 9-10)
+- `provinces` (Admin Level 6) FK to `communities`
+- `municipalities` (Admin Level 8) FK to `provinces`
+- `neighborhoods` (Admin Level 9-10) FK to `municipalities`
 
 ### 3. `stats`
 

@@ -6,10 +6,7 @@ To build the most comprehensive, accurate, and useful dataset of Spanish driving
 
 ## 1. Architecture: Set up a "Worker" App
 
-Prepare `apps/worker` to handle data ingestion, cleaning, and synchronization.
-    - Ensures strict separation of concerns, so heavy scraping dependencies (Playwright, cheerio, etc.) don't pollute the `apps/web` bundle.
-    - `apps/worker`: The executable Node.js application to collect data (DGT, INE, Google).
-    - `packages/db`: Shared Drizzle schema and client used by -both- `web` and `worker`.
+Prepare `apps/worker` to handle data ingestion, cleaning, and synchronization. - Ensures strict separation of concerns, so heavy scraping dependencies (Playwright, cheerio, etc.) don't pollute the `apps/web` bundle. - `apps/worker`: The executable Node.js application to collect data (DGT, INE, Google). - `packages/db`: Shared Drizzle schema and client used by -both- `web` and `worker`.
 
 ## 2. The Foundation: Location Data
 
@@ -24,6 +21,7 @@ Begin fleshing out the logic in `apps/worker` and `packages/db` to call the offi
 `https://servicios.ine.es/wstempus/js/ES/VALORES_VARIABLE/70` queries the INE API for a list of communities.
 
 The INE responds with a JSON object titled 70:
+
 ```
 [{"Id":16473, "FK_Variable":70, "Nombre":"Total Nacional", "Codigo":"00"}
 ,{"Id":8997, "FK_Variable":70, "Nombre":"Andalucía", "Codigo":"01", "FK_JerarquiaPadres":[16473,274511,274508]}
@@ -68,6 +66,7 @@ We may want to extract all entries where Codigo is notna, and where FK_Jerarquia
 `https://servicios.ine.es/wstempus/js/ES/VALORES_VARIABLE/20` queries the INE API for a list of communities.
 
 The INE responds with a JSON object titled 20:
+
 ```
 [{"Id":3, "FK_Variable":20, "Nombre":"Albacete", "Codigo":"02", "FK_JerarquiaPadres":[9004]}
 ,{"Id":4, "FK_Variable":20, "Nombre":"Alicante/Alacant", "Codigo":"03", "FK_JerarquiaPadres":[9006]}
@@ -106,6 +105,7 @@ Again, I'm not sure what to do about the bottom entries. In this case, they're i
 `https://servicios.ine.es/wstempus/js/ES/VALORES_VARIABLE/19` queries the INE API for a list of municipalities.
 
 As you'd suspect, the INE responds with a JSON object titled 19. This one is rather large and it takes the servers a while to respond:
+
 ```
 [{"Id":456, "FK_Variable":19, "Nombre":"Orbaizeta", "Codigo":"31195", "FK_JerarquiaPadres":[32,392378]}
 ,{"Id":457, "FK_Variable":19, "Nombre":"Orbara", "Codigo":"31196", "FK_JerarquiaPadres":[32,392378]}
@@ -161,7 +161,6 @@ To query this data, we need to use a slightly different format from the variable
 
 `https://servicios.ine.es/wstempus/js/ES/DATOS_TABLA/{"Id"}`
 
-
 #### 43: Explotación Estadística del Directorio Central de Empresas
 
 ##### Number of other educational schools (CNAE 855) companies per ccaa per num employees:
@@ -172,6 +171,7 @@ For this one we add a filter to only call CNAE 855 data:
 `https://servicios.ine.es/wstempus/js/ES/DATOS_TABLA/73020?tv=338:18326`
 
 The response for this looks like:
+
 ```
 [{"COD":"DIR188514", "Nombre":"Nacional. Total. Total. 855 Otra educación.", "FK_Unidad":97, "FK_Escala":1, "Data":[{"Fecha":1735686000000, "FK_TipoDato":1, "FK_Periodo":28, "Anyo":2025, "Valor":91715.0, "Secreto":false}
 ,{"Fecha":1704063600000, "FK_TipoDato":1, "FK_Periodo":28, "Anyo":2024, "Valor":87602.0, "Secreto":false}
@@ -233,6 +233,7 @@ For this one we also add a filter for CNAE 855:
 `https://servicios.ine.es/wstempus/js/ES/DATOS_TABLA/294?tv=338:18326`
 
 The response looks like:
+
 ```
 [{"COD":"DIR308292", "Nombre":"Nacional. Total. 855 Otra educación.", "FK_Unidad":128, "FK_Escala":1, "Data":[{"Fecha":1735686000000, "FK_TipoDato":1, "FK_Periodo":28, "Anyo":2025, "Valor":103149.0, "Secreto":false}
 ,{"Fecha":1704063600000, "FK_TipoDato":1, "FK_Periodo":28, "Anyo":2024, "Valor":98564.0, "Secreto":false}
@@ -319,6 +320,7 @@ This one has different GROUP_TABLE values that aren't as specific, so the `tv=33
 `https://servicios.ine.es/wstempus/js/ES/DATOS_TABLA/4721?tv=393:23092` this gets values for all CNAE classes
 
 I'd like to gather data for both. The response for both looks like:
+
 ```
 [{"COD":"DIR570478", "Nombre":"Total Nacional. Secciones P y Q. Total. Total de empresas. Empresas. ", "FK_Unidad":97, "FK_Escala":1, "Data":[{"Fecha":1735686000000, "FK_TipoDato":1, "FK_Periodo":28, "Anyo":2025, "Valor":294392.0, "Secreto":false}
 ,{"Fecha":1704063600000, "FK_TipoDato":1, "FK_Periodo":28, "Anyo":2024, "Valor":284876.0, "Secreto":false}
@@ -423,6 +425,7 @@ Once again, we don't want to add unnecessary data that bloats the primary tables
 `https://servicios.ine.es/wstempus/js/ES/DATOS_TABLA/29005?tv=18:451` this filters for total pop regardless of gender.
 
 This returns a response like:
+
 ```
 [{"COD":"DPOP19723", "Nombre":"Ababuj. Total. Total habitantes. Personas. ", "FK_Unidad":3, "FK_Escala":1, "Data":[{"Fecha":1735686000000, "FK_TipoDato":1, "FK_Periodo":28, "Anyo":2025, "Valor":73.0, "Secreto":false}
 ,{"Fecha":1704063600000, "FK_TipoDato":1, "FK_Periodo":28, "Anyo":2024, "Valor":74.0, "Secreto":false}
@@ -497,12 +500,9 @@ This returns a response like:
 
 #### 353: Atlas de distribución de renta de los hogares
 
-
 #### 314: Encuesta de Presupuestos Familiares (EPF)
 
-
 #### 450: Estadística Continua de Población
-
 
 ### Location Source C: CNIG (Boundaries)
 
@@ -511,13 +511,8 @@ Import GeoJSON/Shapefiles into a PostGIS-enabled database (or store as simplifie
 ## 3. The Core: Autoescuela Registry (DGT)
 
 A. Implement the reference python scripts in the root (`dgt_scraper.py` and `exam_scraper.py`) within `apps/worker` using TypeScript. Make sure they adhere with the schemas defined by the NIE and CNIG data.
-B. Normalization:
-    - Scraper fetches a school
-    - Worker attempts to match school data against `municipalities` table (e.g., "Alcalá de Henares").
-    - If match found: Link via Foreign Key.
-    - If no match: Flag for review.
+B. Normalization: - Scraper fetches a school - Worker attempts to match school data against `municipalities` table (e.g., "Alcalá de Henares"). - If match found: Link via Foreign Key. - If no match: Flag for review.
 
 ## 4. The Polish: Enrichment (Places API)
 
-Once DGT school data is validated, the `apps/worker` can queries Google Places API for metadata (images, reviews) and elaborate the school data.
-    - Consider creating new tables for large files with foreign keys to `schools`.
+Once DGT school data is validated, the `apps/worker` can queries Google Places API for metadata (images, reviews) and elaborate the school data. - Consider creating new tables for large files with foreign keys to `schools`.

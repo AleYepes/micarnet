@@ -53,7 +53,7 @@ Response A:
             [-212316.446600001, 5170030.1699],
             [-212208.761599999, 5170034.1883],
             [-212211.486699998, 5170136.8541],
-            // ... thousands more points, probably for a province Polygon ...
+            // ... thousands more points, probably for a province or ccaa Polygon ...
             [-131472.477499999, 5223852.1961],
             [-131535.449900001, 5223944.5346],
             [-131662.269400001, 5224278.6111],

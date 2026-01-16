@@ -2,6 +2,7 @@ import { db } from "@micarnet/db";
 import { communities, municipalities } from "@micarnet/db/schema/locations";
 import {
   buckets,
+  metadata,
   statsByCommunity,
   statsByMunicipality,
 } from "@micarnet/db/schema/stats";
@@ -38,6 +39,30 @@ async function fetchIneTable(
     // Return empty array on 404/500/No data to allow continuation
     return [];
   }
+}
+
+async function seedMetadata(
+  tableId: number,
+  name: string,
+  description: string,
+  url: string
+) {
+  await db
+    .insert(metadata)
+    .values({
+      ineTableId: tableId,
+      name,
+      description,
+      sourceUrl: url,
+    })
+    .onConflictDoUpdate({
+      target: metadata.ineTableId,
+      set: {
+        name,
+        description,
+        sourceUrl: url,
+      },
+    });
 }
 
 async function seedBuckets() {
@@ -117,8 +142,12 @@ async function seedBuckets() {
       .insert(buckets)
       .values(bucket)
       .onConflictDoUpdate({
-        target: buckets.code,
-        set: { label: bucket.label },
+        target: buckets.name,
+        set: {
+          minEmployees: bucket.minEmployees,
+          maxEmployees: bucket.maxEmployees,
+          isTotal: bucket.isTotal,
+        },
       });
   }
 }

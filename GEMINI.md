@@ -68,6 +68,10 @@ micarnet/
 - Enforce Unidirectional Flow: Ensure apps consume packages, but packages never import from `apps/`.
 - Centralize Data Models: Define all database schemas and types solely in `packages/db` to maintain a single source of truth.
 
+## Testing
+
+- Write concise yet informative cosole logs that describe the faulty object/error being debugged. Do not log uninsighful, repetitive notifications.
+
 ## Available Scripts
 
 - `pnpm run dev`: Start all applications in development mode

@@ -343,6 +343,7 @@ async function processRegion(
   const filename = path.basename(url);
   const filePath = path.join(TEMP_DIR, filename);
   const regionSlug = filename.replace("-latest.osm.pbf", "").replace(/-/g, " ");
+  const initialNeighborhoodCount = neighborhoodCandidates.length;
 
   await downloadFile(url, filePath);
   console.log(`Processing ${regionSlug}...`);
@@ -401,6 +402,10 @@ async function processRegion(
       adminLevel
     );
   }
+
+  console.log(
+    `  > Found ${neighborhoodCandidates.length - initialNeighborhoodCount} neighborhood candidates (levels 9/10) in this region.`
+  );
 }
 
 function filterByContainment(
@@ -611,13 +616,75 @@ async function saveBoundaries(
   return munisWithGeo;
 }
 
+/**
+ * Extract test points from a geometry to check for containment.
+ * We pick the first, middle, and last vertices of the first ring to be robust against precision issues.
+ */
+function getTestPoints(geometry: GeoJSON.Geometry): number[][] {
+  const points: number[][] = [];
+  let ring: number[][] | null = null;
+
+  if (geometry.type === "Polygon") {
+    ring = geometry.coordinates[0];
+  } else if (geometry.type === "MultiPolygon") {
+    ring = geometry.coordinates[0][0];
+  }
+
+  if (ring && ring.length > 0) {
+    // Add first point
+    points.push(ring[0]);
+    // Add a middle point
+    if (ring.length > 2) {
+      points.push(ring[Math.floor(ring.length / 2)]);
+    }
+    // Add a point at 25% and 75% for extra safety
+    if (ring.length > 4) {
+      points.push(ring[Math.floor(ring.length * 0.25)]);
+      points.push(ring[Math.floor(ring.length * 0.75)]);
+    }
+  }
+
+  return points;
+}
+
+function findParentMunicipality(
+  candidateGeometry: GeoJSON.Geometry,
+  munisWithBbox: { id: number; geometry: GeoJSON.Geometry; bbox: number[] }[]
+): number | null {
+  const testPoints = getTestPoints(candidateGeometry);
+
+  if (testPoints.length === 0) {
+    return null;
+  }
+
+  // We only need ONE point to be inside to consider it a match
+  // (Assuming neighborhoods don't span multiple municipalities, which is generally true)
+  for (const [lon, lat] of testPoints) {
+    const testPt = point([lon, lat]);
+
+    for (const m of munisWithBbox) {
+      const [minX, minY, maxX, maxY] = m.bbox;
+      // Fast bbox check
+      if (lon < minX || lon > maxX || lat < minY || lat > maxY) {
+        continue;
+      }
+      // Precise polygon check
+      if (booleanPointInPolygon(testPt, feature(m.geometry))) {
+        return m.id;
+      }
+    }
+  }
+  return null;
+}
+
 async function processNeighborhoods(
   neighborhoodCandidates: { rel: OsmRelation; geometry: GeoJSON.Geometry }[],
   munisWithGeo: BoundaryData[]
 ) {
   console.log(
-    "Processing neighborhoods using resolved municipality geometries..."
+    `Processing ${neighborhoodCandidates.length} neighborhood candidates using resolved municipality geometries...`
   );
+
   const munisWithBbox = munisWithGeo.map((m) => {
     const geom = m.osmGeometry;
     if (!geom) {
@@ -630,57 +697,44 @@ async function processNeighborhoods(
     };
   });
 
+  let matchedCount = 0;
+  let orphanedCount = 0;
+
   for (const cand of neighborhoodCandidates) {
-    let testPoint: number[] | null = null;
-    if (cand.geometry.type === "Polygon") {
-      testPoint = cand.geometry.coordinates[0][0];
-    } else if (cand.geometry.type === "MultiPolygon") {
-      testPoint = cand.geometry.coordinates[0][0][0];
-    }
+    const parentMuniId = findParentMunicipality(cand.geometry, munisWithBbox);
 
-    if (testPoint) {
-      const [lon, lat] = testPoint;
-      let parentMuniId: number | null = null;
-
-      for (const m of munisWithBbox) {
-        const [minX, minY, maxX, maxY] = m.bbox;
-        if (
-          lon >= minX &&
-          lon <= maxX &&
-          lat >= minY &&
-          lat <= maxY &&
-          booleanPointInPolygon(point(testPoint), feature(m.geometry))
-        ) {
-          parentMuniId = m.id;
-          break;
-        }
-      }
-
-      if (parentMuniId) {
-        const adminLevelStr = cand.rel.tags?.admin_level || "9";
-        await db
-          .insert(neighborhoods)
-          .values({
-            id: cand.rel.id,
-            name: cand.rel.tags?.name || "Unknown",
-            municipalityId: parentMuniId,
-            osmAdminLevel: Number.parseInt(adminLevelStr, 10),
-            osmGeometry: cand.geometry,
-            osmName: cand.rel.tags?.name,
-            osmPopulation: cand.rel.tags?.population
-              ? Number.parseInt(cand.rel.tags.population, 10)
-              : null,
-            osmPopulationDate: cand.rel.tags?.["population:date"]
-              ? Number.parseInt(cand.rel.tags["population:date"], 10)
-              : null,
-          })
-          .onConflictDoUpdate({
-            target: neighborhoods.id,
-            set: { osmGeometry: cand.geometry },
-          });
-      }
+    if (parentMuniId) {
+      matchedCount++;
+      const adminLevelStr = cand.rel.tags?.admin_level || "9";
+      await db
+        .insert(neighborhoods)
+        .values({
+          id: cand.rel.id,
+          name: cand.rel.tags?.name || "Unknown",
+          municipalityId: parentMuniId,
+          osmAdminLevel: Number.parseInt(adminLevelStr, 10),
+          osmGeometry: cand.geometry,
+          osmName: cand.rel.tags?.name,
+          osmPopulation: cand.rel.tags?.population
+            ? Number.parseInt(cand.rel.tags.population, 10)
+            : null,
+          osmPopulationDate: cand.rel.tags?.["population:date"]
+            ? Number.parseInt(cand.rel.tags["population:date"], 10)
+            : null,
+        })
+        .onConflictDoUpdate({
+          target: neighborhoods.id,
+          set: { osmGeometry: cand.geometry },
+        });
+    } else {
+      orphanedCount++;
     }
   }
+
+  console.log("Neighborhood processing complete.");
+  console.log(`  - Matched: ${matchedCount}`);
+  console.log(`  - Orphaned: ${orphanedCount}`);
+  console.log(`  - Total processed: ${neighborhoodCandidates.length}`);
 }
 
 export async function syncOsmBoundaries() {
