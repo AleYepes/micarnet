@@ -6,6 +6,7 @@ import {
   neighborhoods,
   provinces,
 } from "@micarnet/db/schema/locations";
+import area from "@turf/area";
 import bbox from "@turf/bbox";
 import booleanPointInPolygon from "@turf/boolean-point-in-polygon";
 import type { Feature, MultiPolygon, Polygon } from "@turf/helpers";
@@ -125,6 +126,12 @@ async function downloadFile(url: string, dest: string) {
       });
       reject(err);
     });
+    response.data.on("error", (err) => {
+      fs.remove(dest).catch(() => {
+        // ignore cleanup error
+      });
+      reject(err);
+    });
   });
 }
 
@@ -149,7 +156,9 @@ async function identifyRelevantRelations(filePath: string) {
     ) {
       const adminLevelStr = osmItem.tags.admin_level || "0";
       const adminLevel = Number.parseInt(adminLevelStr, 10);
-      if (adminLevel >= 4 && adminLevel <= 10) {
+      const validLevels = new Set([4, 6, 8, 9, 10]);
+
+      if (validLevels.has(adminLevel)) {
         relations.push(osmItem);
         for (const member of osmItem.members) {
           if (member.type === "way") {
@@ -285,7 +294,10 @@ function findTargets(
   if (adminLevel === 6) {
     return { targets: relevantProvinces, tagKey: "ine:provincia" };
   }
-  return { targets: relevantMunicipalities, tagKey: "ine:municipio" };
+  if (adminLevel === 8) {
+    return { targets: relevantMunicipalities, tagKey: "ine:municipio" };
+  }
+  return { targets: [], tagKey: "" };
 }
 
 function matchRelationToTargets(
@@ -308,11 +320,14 @@ function matchRelationToTargets(
     );
 
     let isCandidate = false;
+    // Strict INE Code Match
     if (itemIneCode) {
-      if (itemIneCode === target.code || nameSimilarity > 0.6) {
+      if (itemIneCode === target.code) {
         isCandidate = true;
       }
-    } else if (nameSimilarity > 0.6) {
+      // If code exists but doesn't match, strictly REJECT, even if name matches.
+    } else if (nameSimilarity > 0.7) {
+      // Fallback to name similarity only if no code is present
       isCandidate = true;
     }
 
@@ -377,6 +392,12 @@ async function processRegion(
   for (const rel of relations) {
     const adminLevelStr = rel.tags?.admin_level || "0";
     const adminLevel = Number.parseInt(adminLevelStr, 10);
+
+    // Strict Filtering: Only allow 4, 6, 8, 9, 10
+    if (![4, 6, 8, 9, 10].includes(adminLevel)) {
+      continue;
+    }
+
     const featureData = getGeometryForRelation(rel, ways, nodes);
     if (!featureData) {
       continue;
@@ -414,15 +435,15 @@ function filterByContainment(
 ): BoundaryCandidate[] {
   const parentFeat = feature(parentGeometry);
   const contained = candidates.filter((c) => {
-    let testPoint: number[] | null = null;
-    if (c.geometry.type === "Polygon") {
-      testPoint = c.geometry.coordinates[0][0];
-    } else if (c.geometry.type === "MultiPolygon") {
-      testPoint = c.geometry.coordinates[0][0][0];
+    const testPoints = getTestPoints(c.geometry);
+    if (testPoints.length === 0) {
+      return false;
     }
-    return testPoint
-      ? booleanPointInPolygon(point(testPoint), parentFeat)
-      : true;
+
+    // Check if ANY of the robust test points are inside
+    return testPoints.some(([lon, lat]) =>
+      booleanPointInPolygon(point([lon, lat]), parentFeat)
+    );
   });
   return contained.length > 0 ? contained : candidates;
 }
@@ -463,9 +484,11 @@ function mergeCandidates(
       popCount > 0 ? Math.round(totalPop / popCount) : null;
   } catch (e) {
     console.error(`Failed to union candidates for ${target.code}:`, e);
-    const best = candidates.sort((a, b) => b.similarity - a.similarity)[0];
+    const best = [...candidates].sort((a, b) => b.similarity - a.similarity)[0];
     target.osmGeometry = best.geometry;
     target.osmName = best.osmName;
+    target.osmPopulation = best.population;
+    target.osmPopulationDate = best.populationDate;
   }
 }
 
@@ -630,18 +653,29 @@ function getTestPoints(geometry: GeoJSON.Geometry): number[][] {
     ring = geometry.coordinates[0][0];
   }
 
-  if (ring && ring.length > 0) {
-    // Add first point
-    points.push(ring[0]);
-    // Add a middle point
-    if (ring.length > 2) {
-      points.push(ring[Math.floor(ring.length / 2)]);
+  if (!ring || ring.length === 0) {
+    return points;
+  }
+
+  const addPointIfValid = (idx: number) => {
+    const pt = ring?.[idx];
+    if (pt && pt.length >= 2) {
+      points.push(pt);
     }
-    // Add a point at 25% and 75% for extra safety
-    if (ring.length > 4) {
-      points.push(ring[Math.floor(ring.length * 0.25)]);
-      points.push(ring[Math.floor(ring.length * 0.75)]);
-    }
+  };
+
+  // Add first point
+  addPointIfValid(0);
+
+  // Add a middle point
+  if (ring.length > 2) {
+    addPointIfValid(Math.floor(ring.length / 2));
+  }
+
+  // Add points at 25% and 75% for extra safety
+  if (ring.length > 4) {
+    addPointIfValid(Math.floor(ring.length * 0.25));
+    addPointIfValid(Math.floor(ring.length * 0.75));
   }
 
   return points;
@@ -677,76 +711,218 @@ function findParentMunicipality(
   return null;
 }
 
+function prepareNeighborhoodData(
+  cand: { rel: OsmRelation; geometry: GeoJSON.Geometry },
+  parentMuniId: number
+) {
+  const adminLevelStr = cand.rel.tags?.admin_level || "9";
+  const osmId = BigInt(cand.rel.id);
+  const rawName = cand.rel.tags?.name;
+  const isNameArtificial = !rawName;
+  const finalName = rawName || `Neighborhood ${osmId}`;
+
+  return {
+    osmId,
+    name: finalName,
+    municipalityId: parentMuniId,
+    isNameArtificial,
+    osmAdminLevel: Number.parseInt(adminLevelStr, 10),
+    osmGeometry: cand.geometry,
+    osmName: rawName,
+    osmPopulation: cand.rel.tags?.population
+      ? Number.parseInt(cand.rel.tags.population, 10)
+      : null,
+    osmPopulationDate: cand.rel.tags?.["population:date"]
+      ? Number.parseInt(cand.rel.tags["population:date"], 10)
+      : null,
+  };
+}
+
+function filterOutliersInGroup(group: { candArea: number }[]): {
+  validItems: typeof group;
+  rejectCount: number;
+} {
+  if (group.length < 3) {
+    return { validItems: group, rejectCount: 0 };
+  }
+
+  const areas = group.map((c) => c.candArea);
+
+  const totalArea = areas.reduce((sum, a) => sum + a, 0);
+
+  const meanArea = totalArea / areas.length;
+
+  const variance =
+    areas.reduce((sum, a) => sum + (a - meanArea) ** 2, 0) / areas.length;
+
+  const stdDev = Math.sqrt(variance);
+
+  // Only filter if variance is significant
+
+  if (stdDev <= meanArea * 0.05) {
+    return { validItems: group, rejectCount: 0 };
+  }
+
+  const lowerBound = Math.max(0, meanArea - 3 * stdDev);
+
+  const upperBound = meanArea + 3 * stdDev;
+
+  let rejectCount = 0;
+
+  const validItems = group.filter((item) => {
+    if (item.candArea < lowerBound || item.candArea > upperBound) {
+      rejectCount++;
+
+      return false;
+    }
+
+    return true;
+  });
+
+  return { validItems, rejectCount };
+}
+
+function collectCandidatesByMuni(
+  neighborhoodCandidates: { rel: OsmRelation; geometry: GeoJSON.Geometry }[],
+
+  munisWithMeta: {
+    id: number;
+
+    geometry: GeoJSON.Geometry;
+
+    bbox: number[];
+
+    area: number;
+  }[]
+) {
+  const candidatesByMuni = new Map<
+    number,
+    {
+      cand: { rel: OsmRelation; geometry: GeoJSON.Geometry };
+
+      parentMuniId: number;
+
+      candArea: number;
+    }[]
+  >();
+
+  let orphanedCount = 0;
+
+  let parentSizeRejectCount = 0;
+
+  for (const cand of neighborhoodCandidates) {
+    const parentMuniId = findParentMunicipality(cand.geometry, munisWithMeta);
+
+    if (parentMuniId) {
+      const parent = munisWithMeta.find((m) => m.id === parentMuniId);
+
+      const candArea = area(feature(cand.geometry));
+
+      // Skip invalid areas
+
+      if (candArea <= 0 || !parent || parent.area <= 0) {
+        continue;
+      }
+
+      if (parent && candArea < parent.area) {
+        const group = candidatesByMuni.get(parentMuniId) || [];
+
+        group.push({ cand, parentMuniId, candArea });
+
+        candidatesByMuni.set(parentMuniId, group);
+      } else {
+        parentSizeRejectCount++;
+      }
+    } else {
+      orphanedCount++;
+    }
+  }
+
+  return { candidatesByMuni, orphanedCount, parentSizeRejectCount };
+}
+
 async function processNeighborhoods(
   neighborhoodCandidates: { rel: OsmRelation; geometry: GeoJSON.Geometry }[],
+
   munisWithGeo: BoundaryData[]
 ) {
   console.log(
     `Processing ${neighborhoodCandidates.length} neighborhood candidates using resolved municipality geometries...`
   );
 
-  const munisWithBbox = munisWithGeo.map((m) => {
+  // Pre-calculate municipality areas
+
+  const munisWithMeta = munisWithGeo.map((m) => {
     const geom = m.osmGeometry;
+
     if (!geom) {
       throw new Error(`Missing geometry for municipality ${m.id}`);
     }
+
+    const feat = feature(geom);
+
     return {
       id: m.id,
+
       geometry: geom,
-      bbox: bbox(feature(geom)),
+
+      bbox: bbox(feat),
+
+      area: area(feat),
     };
   });
 
-  let matchedCount = 0;
-  let orphanedCount = 0;
+  const { candidatesByMuni, orphanedCount, parentSizeRejectCount } =
+    collectCandidatesByMuni(neighborhoodCandidates, munisWithMeta);
 
-  for (const cand of neighborhoodCandidates) {
-    const parentMuniId = findParentMunicipality(cand.geometry, munisWithBbox);
+  let outlierRejectCount = 0;
 
-    if (parentMuniId) {
-      matchedCount++;
-      const adminLevelStr = cand.rel.tags?.admin_level || "9";
-      const osmId = BigInt(cand.rel.id);
+  let successCount = 0;
 
-      if (osmId < 0n) {
+  // Phase 2: Per-Municipality Outlier Detection & Insertion
+
+  for (const [_muniId, group] of candidatesByMuni) {
+    const { validItems, rejectCount } = filterOutliersInGroup(group);
+
+    outlierRejectCount += rejectCount;
+
+    // Insert valid items for this municipality
+
+    for (const item of validItems) {
+      successCount++;
+
+      const data = prepareNeighborhoodData(item.cand, item.parentMuniId);
+
+      if (data.osmId < 0n) {
         console.warn(
-          `Found negative OSM ID: ${osmId} for neighborhood candidate.`
+          `Found negative OSM ID: ${data.osmId} for neighborhood candidate.`
         );
       }
 
-      const rawName = cand.rel.tags?.name;
-      const isNameArtificial = !rawName;
-      const finalName = rawName || `Neighborhood ${osmId}`;
-
       await db
+
         .insert(neighborhoods)
-        .values({
-          osmId,
-          name: finalName,
-          municipalityId: parentMuniId,
-          isNameArtificial,
-          osmAdminLevel: Number.parseInt(adminLevelStr, 10),
-          osmGeometry: cand.geometry,
-          osmName: rawName,
-          osmPopulation: cand.rel.tags?.population
-            ? Number.parseInt(cand.rel.tags.population, 10)
-            : null,
-          osmPopulationDate: cand.rel.tags?.["population:date"]
-            ? Number.parseInt(cand.rel.tags["population:date"], 10)
-            : null,
-        })
+
+        .values(data)
+
         .onConflictDoUpdate({
           target: neighborhoods.osmId,
-          set: { osmGeometry: cand.geometry },
+
+          set: data,
         });
-    } else {
-      orphanedCount++;
     }
   }
 
   console.log("Neighborhood processing complete.");
-  console.log(`  - Matched: ${matchedCount}`);
+
+  console.log(`  - Matched & Inserted: ${successCount}`);
+
   console.log(`  - Orphaned: ${orphanedCount}`);
+
+  console.log(`  - Rejected (Parent Size): ${parentSizeRejectCount}`);
+
+  console.log(`  - Rejected (Outlier): ${outlierRejectCount}`);
+
   console.log(`  - Total processed: ${neighborhoodCandidates.length}`);
 }
 
