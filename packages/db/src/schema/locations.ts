@@ -1,5 +1,13 @@
 import { relations } from "drizzle-orm";
-import { integer, jsonb, pgSchema, text } from "drizzle-orm/pg-core";
+import {
+  bigint,
+  boolean,
+  integer,
+  jsonb,
+  pgSchema,
+  serial,
+  text,
+} from "drizzle-orm/pg-core";
 
 export const geoSchema = pgSchema("geo");
 
@@ -49,11 +57,13 @@ export const municipalities = geoSchema.table("municipalities", {
 });
 
 export const neighborhoods = geoSchema.table("neighborhoods", {
-  id: integer("id").primaryKey(), // OSM ID as integer
+  id: serial("id").primaryKey(),
+  osmId: bigint("osm_id", { mode: "number" }).notNull().unique(), // OSM ID
   name: text("name").notNull(),
   municipalityId: integer("municipality_id")
     .notNull()
     .references(() => municipalities.id),
+  isNameArtificial: boolean("is_name_artificial").default(false).notNull(),
   // OSM Data
   osmName: text("osm_name"),
   osmAdminLevel: integer("osm_admin_level"),

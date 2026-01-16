@@ -15,7 +15,6 @@ import {
   instructors,
   messages,
   packages,
-  schoolLocations,
   schools,
   students,
 } from "./schema/schools";
@@ -44,7 +43,6 @@ export const schema = {
   instructors,
   messages,
   packages,
-  schoolLocations,
   schools,
   students,
   // Stats

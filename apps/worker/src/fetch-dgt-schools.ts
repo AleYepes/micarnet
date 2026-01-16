@@ -4,7 +4,7 @@ import {
   neighborhoods,
   provinces,
 } from "@micarnet/db/schema/locations";
-import { schoolLocations, schools } from "@micarnet/db/schema/schools";
+import { schools } from "@micarnet/db/schema/schools";
 import booleanPointInPolygon from "@turf/boolean-point-in-polygon";
 import { point } from "@turf/helpers";
 import axios from "axios";
@@ -239,73 +239,43 @@ async function findMunicipalityAndCreateNeighborhood(
   return null;
 }
 
-async function getOrCreateSchool(attr: DgtSchoolAttributes) {
-  const schoolName = attr.nombre.trim();
-  const existingSchool = await db.query.schools.findFirst({
-    where: (s, { eq }) => eq(s.name, schoolName),
-  });
-
-  if (existingSchool) {
-    return existingSchool;
-  }
-
-  const [inserted] = await db
-    .insert(schools)
-    .values({
-      name: schoolName,
-      email: attr.email,
-      phone: attr.telefono?.toString() || attr.movil,
-      website: attr.web,
-    })
-    .returning();
-  return inserted;
-}
-
-async function upsertLocation(
-  schoolId: string,
+async function upsertSchool(
   attr: DgtSchoolAttributes,
   neighborhoodId: number | null
 ) {
-  const lat = attr.latitud;
-  const lon = attr.longitud;
-  const locationName =
-    attr.nombre === attr.municipio
-      ? attr.nombre
-      : `${attr.nombre} - ${attr.municipio}`;
-
-  const sameAddressLoc = await db.query.schoolLocations.findFirst({
-    where: (loc, { and, eq }) =>
-      and(
-        eq(loc.schoolId, schoolId),
-        eq(loc.address, attr.direccion || "Unknown")
-      ),
-  });
-
-  if (sameAddressLoc) {
-    await db
-      .update(schoolLocations)
-      .set({
-        neighborhoodId,
-        zipCode: attr.codigo_postal?.toString(),
-        phone: attr.telefono?.toString() || attr.movil,
-        latitude: lat,
-        longitude: lon,
-        updatedAt: new Date(),
-      })
-      .where(eq(schoolLocations.id, sameAddressLoc.id));
-  } else {
-    await db.insert(schoolLocations).values({
-      schoolId,
-      neighborhoodId,
-      name: locationName,
-      address: attr.direccion || "Unknown",
-      zipCode: attr.codigo_postal?.toString(),
-      phone: attr.telefono?.toString() || attr.movil,
-      latitude: lat,
-      longitude: lon,
-      isHeadquarters: false,
-    });
+  const dgtId = attr.codigo_centro;
+  if (!dgtId) {
+    // console.warn(`Missing codigo_centro for ${attr.nombre}`);
+    return;
   }
+
+  // Split dgtId (e.g. AB018901) into School Code (AB0189) and Section Code (01)
+  // Assumption: Last 2 digits are section.
+  const dgtSectionCode = dgtId.slice(-2);
+  const dgtSchoolCode = dgtId.slice(0, -2);
+
+  const values = {
+    dgtId,
+    dgtSchoolCode,
+    dgtSectionCode,
+    dgtName: attr.nombre,
+    dgtAddress: attr.direccion,
+    dgtMunicipality: attr.municipio,
+    dgtProvince: attr.provincia,
+    dgtPhone: attr.telefono?.toString() || attr.movil,
+    dgtEmail: attr.email,
+    dgtWebsite: attr.web,
+    dgtLatitude: attr.latitud,
+    dgtLongitude: attr.longitud,
+    neighborhoodId,
+    updatedAt: new Date(),
+  };
+
+  // Upsert using dgtId
+  await db.insert(schools).values(values).onConflictDoUpdate({
+    target: schools.dgtId,
+    set: values,
+  });
 }
 
 async function processSchoolRecord(
@@ -314,12 +284,6 @@ async function processSchoolRecord(
   provinceMunicipalities: MunicipalityData[]
 ): Promise<DgtSchoolAttributes | null> {
   if (!attr.nombre) {
-    return null;
-  }
-
-  const school = await getOrCreateSchool(attr);
-  if (!school) {
-    console.error(`Failed to get/create school ${attr.nombre}`);
     return null;
   }
 
@@ -339,7 +303,7 @@ async function processSchoolRecord(
     unmatched = attr;
   }
 
-  await upsertLocation(school.id, attr, neighborhoodId);
+  await upsertSchool(attr, neighborhoodId);
   return unmatched;
 }
 

@@ -706,15 +706,28 @@ async function processNeighborhoods(
     if (parentMuniId) {
       matchedCount++;
       const adminLevelStr = cand.rel.tags?.admin_level || "9";
+      const osmId = BigInt(cand.rel.id);
+
+      if (osmId < 0n) {
+        console.warn(
+          `Found negative OSM ID: ${osmId} for neighborhood candidate.`
+        );
+      }
+
+      const rawName = cand.rel.tags?.name;
+      const isNameArtificial = !rawName;
+      const finalName = rawName || `Neighborhood ${osmId}`;
+
       await db
         .insert(neighborhoods)
         .values({
-          id: cand.rel.id,
-          name: cand.rel.tags?.name || "Unknown",
+          osmId,
+          name: finalName,
           municipalityId: parentMuniId,
+          isNameArtificial,
           osmAdminLevel: Number.parseInt(adminLevelStr, 10),
           osmGeometry: cand.geometry,
-          osmName: cand.rel.tags?.name,
+          osmName: rawName,
           osmPopulation: cand.rel.tags?.population
             ? Number.parseInt(cand.rel.tags.population, 10)
             : null,
@@ -723,7 +736,7 @@ async function processNeighborhoods(
             : null,
         })
         .onConflictDoUpdate({
-          target: neighborhoods.id,
+          target: neighborhoods.osmId,
           set: { osmGeometry: cand.geometry },
         });
     } else {

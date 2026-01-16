@@ -26,8 +26,6 @@ async function fetchIneVariable(
 }
 
 export async function syncLocations() {
-  console.log("Starting location sync (with internal INE IDs)...");
-
   // 1. Communities (Variable 70)
   console.log("Fetching communities...");
   const rawCommunities = await fetchIneVariable(70);

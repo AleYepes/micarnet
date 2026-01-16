@@ -4,6 +4,7 @@ import {
   doublePrecision,
   integer,
   pgTable,
+  serial,
   text,
   timestamp,
   uuid,
@@ -14,49 +15,26 @@ import { neighborhoods } from "./locations";
 // --- Marketplace Core ---
 
 export const schools = pgTable("schools", {
-  id: uuid("id").primaryKey().defaultRandom(),
+  id: serial("id").primaryKey(),
   ownerId: text("owner_id").references(() => user.id), // Admin user
-  name: text("name").notNull(),
-  cif: text("cif"), // Tax ID
-  stripeAccountId: text("stripe_account_id"),
-  logoUrl: text("logo_url"),
-  website: text("website"),
-  email: text("email"),
-  phone: text("phone"),
 
-  active: boolean("active").default(true).notNull(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at")
-    .defaultNow()
-    .$onUpdate(() => new Date())
-    .notNull(),
-});
+  // DGT Sourced Data
+  dgtId: text("dgt_id").unique(), // codigo_centro (e.g. AB018901)
+  dgtSchoolCode: text("dgt_school_code"), // e.g. AB0189
+  dgtSectionCode: text("dgt_section_code"), // e.g. 01
+  dgtName: text("dgt_name"),
+  dgtAddress: text("dgt_address"),
+  dgtMunicipality: text("dgt_municipality"),
+  dgtProvince: text("dgt_province"),
+  dgtPhone: text("dgt_phone"),
+  dgtEmail: text("dgt_email"),
+  dgtWebsite: text("dgt_website"),
+  dgtLatitude: doublePrecision("dgt_latitude"),
+  dgtLongitude: doublePrecision("dgt_longitude"),
 
-export const schoolLocations = pgTable("school_locations", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  schoolId: uuid("school_id")
-    .notNull()
-    .references(() => schools.id, { onDelete: "cascade" }),
   neighborhoodId: integer("neighborhood_id").references(() => neighborhoods.id),
 
-  name: text("name").notNull(), // e.g. "Oficina Centro"
-  address: text("address").notNull(),
-  zipCode: text("zip_code"),
-
-  // Contact info specific to this location
-  phone: text("phone"),
-
-  // Location
-  latitude: doublePrecision("latitude"),
-  longitude: doublePrecision("longitude"),
-  isHeadquarters: boolean("is_headquarters").default(false),
-
-  // Enrichment
-  placeId: text("place_id"),
-  rating: doublePrecision("rating"),
-  userRatingsTotal: integer("user_ratings_total"),
-  mainImage: text("main_image"),
-
+  active: boolean("active").default(true).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at")
     .defaultNow()
@@ -84,7 +62,7 @@ export const students = pgTable("students", {
 
 export const instructors = pgTable("instructors", {
   id: uuid("id").primaryKey().defaultRandom(),
-  schoolId: uuid("school_id")
+  schoolId: integer("school_id")
     .notNull()
     .references(() => schools.id, { onDelete: "cascade" }),
   userId: text("user_id")
@@ -97,7 +75,7 @@ export const instructors = pgTable("instructors", {
 
 export const packages = pgTable("packages", {
   id: uuid("id").primaryKey().defaultRandom(),
-  schoolId: uuid("school_id")
+  schoolId: integer("school_id")
     .notNull()
     .references(() => schools.id, { onDelete: "cascade" }),
   name: text("name").notNull(), // e.g. "Pack 10 Clases"
@@ -114,7 +92,7 @@ export const classes = pgTable("classes", {
   instructorId: uuid("instructor_id")
     .notNull()
     .references(() => instructors.id),
-  locationId: uuid("location_id").references(() => schoolLocations.id), // Starting point
+  schoolId: integer("school_id").references(() => schools.id), // Starting point / Location
 
   startTime: timestamp("start_time").notNull(),
   endTime: timestamp("end_time").notNull(),
@@ -127,7 +105,7 @@ export const classes = pgTable("classes", {
 
 export const conversations = pgTable("conversations", {
   id: uuid("id").primaryKey().defaultRandom(),
-  schoolId: uuid("school_id")
+  schoolId: integer("school_id")
     .notNull()
     .references(() => schools.id),
   studentId: uuid("student_id")
@@ -154,7 +132,7 @@ export const messages = pgTable("messages", {
 
 export const examStats = pgTable("exam_stats", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
-  schoolId: uuid("school_id")
+  schoolId: integer("school_id")
     .notNull()
     .references(() => schools.id),
   sectionCode: text("section_code"),
@@ -179,25 +157,14 @@ export const schoolsRelations = relations(schools, ({ one, many }) => ({
     fields: [schools.ownerId],
     references: [user.id],
   }),
-  locations: many(schoolLocations),
+  neighborhood: one(neighborhoods, {
+    fields: [schools.neighborhoodId],
+    references: [neighborhoods.id],
+  }),
   instructors: many(instructors),
   packages: many(packages),
   stats: many(examStats),
 }));
-
-export const schoolLocationsRelations = relations(
-  schoolLocations,
-  ({ one }) => ({
-    school: one(schools, {
-      fields: [schoolLocations.schoolId],
-      references: [schools.id],
-    }),
-    neighborhood: one(neighborhoods, {
-      fields: [schoolLocations.neighborhoodId],
-      references: [neighborhoods.id],
-    }),
-  })
-);
 
 export const studentsRelations = relations(students, ({ one, many }) => ({
   user: one(user, {
