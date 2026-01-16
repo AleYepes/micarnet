@@ -525,6 +525,59 @@ function resolveCandidates(
   }
 }
 
+/**
+ * Ceuta and Melilla are autonomous cities where the province and community boundaries
+ * are identical. OSM often omits the province level (6) in their respective PBF files.
+ * This function patches missing province data from the community data if they match.
+ */
+function patchAutonomousCities(
+  communityMap: Map<number, BoundaryData>,
+  provinceMap: Map<number, BoundaryData>,
+  municipalityMap: Map<number, BoundaryData>
+) {
+  // Ceuta (51) and Melilla (52) province codes
+  const autonomousCityCodes = ["51", "52"];
+  for (const p of provinceMap.values()) {
+    if (
+      autonomousCityCodes.includes(p.code) &&
+      !p.osmGeometry &&
+      p.communityId
+    ) {
+      const c = communityMap.get(p.communityId);
+      if (c?.osmGeometry) {
+        console.log(
+          `Patching province ${p.officialName} (${p.code}) with data from community ${c.officialName}`
+        );
+        p.osmGeometry = c.osmGeometry;
+        p.osmName = c.osmName;
+        p.osmPopulation = c.osmPopulation;
+        p.osmPopulationDate = c.osmPopulationDate;
+      }
+    }
+  }
+
+  // Also patch the main municipalities for these cities (51001, 52001)
+  const autonomousMuniCodes = ["51001", "52001"];
+  for (const m of municipalityMap.values()) {
+    if (
+      autonomousMuniCodes.includes(m.code) &&
+      !m.osmGeometry &&
+      m.provinceId
+    ) {
+      const p = provinceMap.get(m.provinceId);
+      if (p?.osmGeometry) {
+        console.log(
+          `Patching municipality ${m.officialName} (${m.code}) with data from province ${p.officialName}`
+        );
+        m.osmGeometry = p.osmGeometry;
+        m.osmName = p.osmName;
+        m.osmPopulation = p.osmPopulation;
+        m.osmPopulationDate = p.osmPopulationDate;
+      }
+    }
+  }
+}
+
 async function loadOfficialBoundaries() {
   const [comms, provs, munis] = await Promise.all([
     db.select().from(communities),
@@ -962,6 +1015,9 @@ export async function syncOsmBoundaries() {
     const parent = p.communityId ? communityMap.get(p.communityId) : null;
     resolveCandidates(p, parent?.osmGeometry || null);
   }
+
+  // Patch Ceuta and Melilla provinces from their communities if missing
+  patchAutonomousCities(communityMap, provinceMap, municipalityMap);
 
   for (const m of municipalityMap.values()) {
     const parent = m.provinceId ? provinceMap.get(m.provinceId) : null;
