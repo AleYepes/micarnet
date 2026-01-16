@@ -28,7 +28,6 @@ Contains official statistics (DGT school exam pass rates, population counts, bus
 Contains the core application business logic (WIP)
 
 - `schools`: Business entities.
-- `school_locations`: Physical offices or practice tracks.
 - `students` & `instructors`: User profiles linked to `auth` identities.
 - Transactions: Packages, classes, bookings, and messaging records.
 
@@ -44,12 +43,8 @@ Location Polygon source to add neighborhoods and refine official regions and sch
 
 ### 3. DGT Registry
 
-The official list of certified driving schools and exams.
+The official source for certified driving schools and exams in Spain.
 
-### 4. CartoCiudad
-
-A Geocoding engine to validate and elaborate DGT data.
-
-### 5. Places API
+### 4. Places API
 
 A second Geocoding engine to validate and elaborate DGT data. Primarily for reviews, images, and other rich business data.

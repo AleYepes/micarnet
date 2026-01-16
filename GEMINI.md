@@ -70,7 +70,7 @@ micarnet/
 
 ## Testing
 
-- Write concise yet informative cosole logs that describe the faulty object/error being debugged. Do not log uninsighful, repetitive notifications.
+- Write concise yet informative cosole logs that describe the faulty object/error being debugged. Do not log uninsighful notifications.
 
 ## Available Scripts
 
