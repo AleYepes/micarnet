@@ -30,14 +30,20 @@ This project uses PostgreSQL with Drizzle ORM.
 
 1. Make sure you have a PostgreSQL database set up.
 2. Update your `apps/web/.env` file with your PostgreSQL connection details.
+3. Set up postgres:
 
-3. Apply the schema to your database:
+```bash
+cd packages/db/ && docker compose down -v && docker compose up -d
+```
+
+4. Apply the schema and populate the db:
 
 ```bash
 pnpm run db:push
+pnpm --filter worker start
 ```
 
-Then, run the development server:
+5. Then, run the development server:
 
 ```bash
 pnpm run dev
