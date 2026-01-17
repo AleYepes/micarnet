@@ -29,7 +29,7 @@ We will use the **Text Search (New)** endpoint. Unlike the legacy API, the New A
       "radius": 500.0
     }
   },
-  "maxResultCount": 5,
+  "maxResultCount": 20,
   "languageCode": "es",
   "minRating": 0,
   "openNow": false
@@ -42,7 +42,7 @@ We will request fields from all three SKU tiers to fully enrich the application.
 
 | SKU Tier       | Fields Requested                                                                                                                                          | Application Usage                                                                                       |
 | :------------- | :-------------------------------------------------------------------------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------ |
-| **Basic**      | `id`, `displayName`, `formattedAddress`, `location`, `photos`, `addressComponents`, `viewport`, `plusCode`                                                | Core mapping, address validation, neighborhood linking.                                                 |
+| **Basic**      | `id`, `displayName`, `formattedAddress`, `location`, `photos`, `addressComponents`, `viewport`, `plusCode`, `types`                                       | Core mapping, address validation, neighborhood linking, and category verification.                      |
 | **Advanced**   | `googleMapsUri`, `utcOffsetMinutes`, `adrFormatAddress`, `businessStatus`                                                                                 | SEO links, timezone correction for open hours, precise parsing.                                         |
 | **Contact**    | `nationalPhoneNumber`, `internationalPhoneNumber`, `websiteUri`, `regularOpeningHours`                                                                    | User contact actions (Call/Visit).                                                                      |
 | **Atmosphere** | `priceLevel`, `rating`, `userRatingCount`, `reviews`, `generativeSummary`, `editorialSummary`, `paymentOptions`, `parkingOptions`, `accessibilityOptions` | **Rich UX**: Filtering by "Wheelchair accessible", "Credit Card accepted", and displaying AI summaries. |
@@ -51,9 +51,29 @@ We will request fields from all three SKU tiers to fully enrich the application.
 
 ## 3. Database Schema Updates
 
-We need to expand the schema to accommodate complex objects (like opening hours and accessibility) and new API features (like AI summaries).
+We use a two-step storage strategy:
 
-### 3.1 `packages/db/src/schema/schools.ts`
+1. **Raw Staging**: Store the complete JSON response from Google in `google_places_responses`.
+2. **Parsed Enrichment**: Extract specific fields into the `schools` table for optimized querying.
+
+### 3.1 `google_places_responses` (Raw Staging)
+
+```typescript
+export const googlePlacesResponses = pgTable("google_places_responses", {
+  id: serial("id").primaryKey(),
+  dgtId: text("dgt_id")
+    .references(() => schools.dgtId)
+    .notNull()
+    .unique(),
+  placeId: text("place_id"), // Extracted for easy lookups
+  rawData: jsonb("raw_data").notNull(), // The complete JSON from Google
+  status: text("status").notNull(), // 'MATCHED', 'NOT_FOUND', 'MULTIPLE_CANDIDATES'
+  matchConfidence: doublePrecision("match_confidence"),
+  fetchedAt: timestamp("fetched_at").defaultNow().notNull(),
+});
+```
+
+### 3.2 `schools` Table Enrichment
 
 ```typescript
 // Existing fields...

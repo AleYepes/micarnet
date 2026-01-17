@@ -3,6 +3,7 @@ import {
   boolean,
   doublePrecision,
   integer,
+  jsonb,
   pgTable,
   serial,
   text,
@@ -34,12 +35,51 @@ export const schools = pgTable("schools", {
 
   neighborhoodId: integer("neighborhood_id").references(() => neighborhoods.id),
 
+  // Google Places Enrichment
+  googlePlaceId: text("google_place_id").unique(),
+  businessStatus: text("business_status"), // OPERATIONAL, CLOSED_TEMPORARILY, etc.
+  placeUri: text("place_uri"),
+  googleViewport: jsonb("google_viewport"),
+  plusCode: jsonb("plus_code"),
+
+  rating: doublePrecision("rating"),
+  userRatingCount: integer("user_rating_count"),
+  priceLevel: text("price_level"),
+
+  photos: jsonb("photos"),
+  reviews: jsonb("reviews"),
+  generativeSummary: jsonb("generative_summary"),
+  accessibilityOptions: jsonb("accessibility_options"),
+  paymentOptions: jsonb("payment_options"),
+  parkingOptions: jsonb("parking_options"),
+
+  websiteUri: text("website_uri"),
+  nationalPhoneNumber: text("national_phone_number"),
+  regularOpeningHours: jsonb("regular_opening_hours"),
+
+  lastGoogleSync: timestamp("last_google_sync"),
+  googleMatchConfidence: doublePrecision("google_match_confidence"),
+
   active: boolean("active").default(true).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at")
     .defaultNow()
     .$onUpdate(() => new Date())
     .notNull(),
+});
+
+// Staging table for raw Google Places responses
+export const googlePlacesResponses = pgTable("google_places_responses", {
+  id: serial("id").primaryKey(),
+  dgtId: text("dgt_id")
+    .references(() => schools.dgtId)
+    .notNull()
+    .unique(),
+  placeId: text("place_id"), // Extracted for easy lookups
+  rawData: jsonb("raw_data").notNull(), // The complete JSON from Google
+  status: text("status").notNull(), // 'MATCHED', 'NOT_FOUND', 'MULTIPLE_CANDIDATES'
+  matchConfidence: doublePrecision("match_confidence"),
+  fetchedAt: timestamp("fetched_at").defaultNow().notNull(),
 });
 
 export const students = pgTable("students", {

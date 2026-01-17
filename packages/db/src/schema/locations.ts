@@ -58,18 +58,22 @@ export const municipalities = geoSchema.table("municipalities", {
 
 export const neighborhoods = geoSchema.table("neighborhoods", {
   id: serial("id").primaryKey(),
-  osmId: bigint("osm_id", { mode: "number" }).notNull().unique(), // OSM ID
+  osmId: bigint("osm_id", { mode: "number" }).unique(), // OSM ID (Nullable for colloquial neighborhoods)
+  googlePlaceId: text("google_place_id").unique(), // For neighborhoods found via API
   name: text("name").notNull(),
   municipalityId: integer("municipality_id")
     .notNull()
     .references(() => municipalities.id),
   isNameArtificial: boolean("is_name_artificial").default(false).notNull(),
+  type: text("type").default("ADMINISTRATIVE").notNull(), // 'ADMINISTRATIVE' (OSM) or 'COLLOQUIAL' (Google)
   // OSM Data
   osmName: text("osm_name"),
   osmAdminLevel: integer("osm_admin_level"),
   osmPopulation: integer("osm_population"),
   osmPopulationDate: integer("osm_population_date"),
   osmGeometry: jsonb("osm_geometry"),
+  // Google Data
+  googleViewport: jsonb("google_viewport"), // Vital for colloquial neighborhoods that lack polygons
 });
 
 export const communitiesRelations = relations(communities, ({ many }) => ({
