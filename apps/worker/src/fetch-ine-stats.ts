@@ -34,8 +34,14 @@ async function fetchIneTable(
   }
   try {
     const response = await axios.get<IneDataRow[]>(url);
+    if (!Array.isArray(response.data)) {
+      console.warn(`Non-array response for table ${tableId}:`, response.data);
+      return [];
+    }
     return response.data;
-  } catch (_error) {
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(`Failed to fetch table ${tableId}:`, message);
     // Return empty array on 404/500/No data to allow continuation
     return [];
   }
@@ -305,6 +311,9 @@ async function processMunicipality(muni: typeof municipalities.$inferSelect) {
   >();
 
   const addToMap = (rows: IneDataRow[], key: "pop" | "edu" | "all") => {
+    if (!Array.isArray(rows)) {
+      return;
+    }
     for (const row of rows) {
       for (const dp of row.Data) {
         if (dp.Anyo >= 2020) {

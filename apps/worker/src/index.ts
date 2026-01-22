@@ -1,5 +1,5 @@
 import { syncDgtSchools } from "./fetch-dgt-schools";
-import { syncGooglePlacesRaw } from "./fetch-google-places";
+// import { syncGooglePlacesRaw } from "./fetch-google-places";
 import { syncLocations } from "./fetch-ine-locations";
 import { syncIneStats } from "./fetch-ine-stats";
 import { syncOsmBoundaries } from "./fetch-osm-boundaries";
@@ -23,8 +23,8 @@ async function main() {
     await syncDgtSchools();
 
     // 5. Sync Google Places Raw Data
-    console.log("\n--- Syncing Google Places Raw ---");
-    await syncGooglePlacesRaw();
+    // console.log("\n--- Syncing Google Places Raw ---");
+    // await syncGooglePlacesRaw();
   } catch (error) {
     console.error("Worker failed:", error);
     process.exit(1);
