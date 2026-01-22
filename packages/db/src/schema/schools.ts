@@ -171,7 +171,6 @@ export const messages = pgTable("messages", {
 // --- Legacy / Stats ---
 
 export const examStats = pgTable("exam_stats", {
-  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   schoolId: integer("school_id")
     .notNull()
     .references(() => schools.id),
@@ -182,12 +181,16 @@ export const examStats = pgTable("exam_stats", {
   examType: text("exam_type").notNull(),
   licenseType: text("license_type").notNull(),
 
-  passed: integer("passed").notNull().default(0),
-  passedFirstAttempt: integer("passed_1_conv").notNull().default(0),
-  passedSecondAttempt: integer("passed_2_conv").notNull().default(0),
-  passedThirdOrFourthAttempt: integer("passed_3_4_conv").notNull().default(0),
-  passedFifthOrMoreAttempt: integer("passed_5_plus_conv").notNull().default(0),
-  failed: integer("failed").notNull().default(0),
+  totalPassed: integer("total_passed").notNull().default(0),
+  passedFirstAttempt: integer("passed_first_attempt").notNull().default(0),
+  passedSecondAttempt: integer("passed_second_attempt").notNull().default(0),
+  passedThirdOrFourthAttempt: integer("passed_third_or_fourth_attempt")
+    .notNull()
+    .default(0),
+  passedFifthOrMoreAttempt: integer("passed_fifth_or_more_attempt")
+    .notNull()
+    .default(0),
+  totalFailed: integer("total_failed").notNull().default(0),
 });
 
 // --- Relations ---

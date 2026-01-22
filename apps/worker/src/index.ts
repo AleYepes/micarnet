@@ -1,3 +1,4 @@
+import { syncDgtExams } from "./fetch-dgt-exams";
 import { syncDgtSchools } from "./fetch-dgt-schools";
 // import { syncGooglePlacesRaw } from "./fetch-google-places";
 import { syncLocations } from "./fetch-ine-locations";
@@ -22,7 +23,11 @@ async function main() {
     console.log("\n--- Syncing DGT Schools ---");
     await syncDgtSchools();
 
-    // 5. Sync Google Places Raw Data
+    // 5. Sync DGT Exams
+    console.log("\n--- Syncing DGT Exams ---");
+    await syncDgtExams();
+
+    // 6. Sync Google Places Raw Data
     // console.log("\n--- Syncing Google Places Raw ---");
     // await syncGooglePlacesRaw();
   } catch (error) {

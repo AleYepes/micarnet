@@ -208,12 +208,18 @@ importers:
       '@turf/union':
         specifier: ^7.3.1
         version: 7.3.1
+      '@types/adm-zip':
+        specifier: ^0.5.7
+        version: 0.5.7
       '@types/fs-extra':
         specifier: ^11.0.4
         version: 11.0.4
       '@types/string-similarity':
         specifier: ^4.0.2
         version: 4.0.2
+      adm-zip:
+        specifier: ^0.5.16
+        version: 0.5.16
       axios:
         specifier: ^1.7.9
         version: 1.13.2
@@ -229,6 +235,9 @@ importers:
       fs-extra:
         specifier: ^11.3.3
         version: 11.3.3
+      iconv-lite:
+        specifier: ^0.7.2
+        version: 0.7.2
       osm-pbf-parser-node:
         specifier: ^1.1.4
         version: 1.1.4
@@ -1764,6 +1773,9 @@ packages:
   '@turf/union@7.3.1':
     resolution: {integrity: sha512-Fk8HvP2gRrRJz8xefeoFJJUeLwhih3HoPPKlqaDf/6L43jwAzBD6BPu59+AwRXOlaZeOUMNMGzgSgx0KKrBwBg==}
 
+  '@types/adm-zip@0.5.7':
+    resolution: {integrity: sha512-DNEs/QvmyRLurdQPChqq0Md4zGvPwHerAJYWk9l2jCbD1VPpnzRJorOdiq4zsw09NFbYnhfsoEhWtxIzXpn2yw==}
+
   '@types/fs-extra@11.0.4':
     resolution: {integrity: sha512-yTbItCNreRooED33qjunPthRcSjERP1r4MqCZc7wv0u2sUkzTFp45tgUfS5+r7FrZPdmCCNflLhVSP/o+SemsQ==}
 
@@ -1807,6 +1819,10 @@ packages:
   accepts@2.0.0:
     resolution: {integrity: sha512-5cvg6CtKwfgdmVqY1WIiXKc3Q1bkRqGLi+2W/6ao+6Y7gu/RCwRuAhGEzh5B4KlszSuTLgZYuqFqo5bImjNKng==}
     engines: {node: '>= 0.6'}
+
+  adm-zip@0.5.16:
+    resolution: {integrity: sha512-TGw5yVi4saajsSEgz25grObGHEUaDrniwvA2qwSC060KfqGPdglhvPMA2lPIoxs3PQIItj2iag35fONcQqgUaQ==}
+    engines: {node: '>=12.0'}
 
   agent-base@7.1.4:
     resolution: {integrity: sha512-MnA+YT8fwfJPgBx3m60MNqakm30XOkyIoH1y6huTQvC0PwZG7ki8NacLBcrPbNoo8vEZy7Jpuk7+jMO+CUovTQ==}
@@ -2622,6 +2638,10 @@ packages:
 
   iconv-lite@0.7.1:
     resolution: {integrity: sha512-2Tth85cXwGFHfvRgZWszZSvdo+0Xsqmw8k8ZwxScfcBneNUraK+dxRxRm24nszx80Y0TVio8kKLt5sLE7ZCLlw==}
+    engines: {node: '>=0.10.0'}
+
+  iconv-lite@0.7.2:
+    resolution: {integrity: sha512-im9DjEDQ55s9fL4EYzOAv0yMqmMBSZp6G0VvFyTMPKWxiSBHUj9NW/qqLmXUwXrrM7AvqSlTCfvqRb0cM8yYqw==}
     engines: {node: '>=0.10.0'}
 
   ieee754@1.2.1:
@@ -5003,6 +5023,10 @@ snapshots:
       polyclip-ts: 0.16.8
       tslib: 2.8.1
 
+  '@types/adm-zip@0.5.7':
+    dependencies:
+      '@types/node': 22.19.3
+
   '@types/fs-extra@11.0.4':
     dependencies:
       '@types/jsonfile': 6.1.4
@@ -5051,6 +5075,8 @@ snapshots:
     dependencies:
       mime-types: 3.0.2
       negotiator: 1.0.0
+
+  adm-zip@0.5.16: {}
 
   agent-base@7.1.4: {}
 
@@ -5806,6 +5832,10 @@ snapshots:
   husky@9.1.7: {}
 
   iconv-lite@0.7.1:
+    dependencies:
+      safer-buffer: 2.1.2
+
+  iconv-lite@0.7.2:
     dependencies:
       safer-buffer: 2.1.2
 

@@ -243,11 +243,14 @@ async function upsertSchool(
   attr: DgtSchoolAttributes,
   neighborhoodId: number | null
 ) {
-  const dgtId = attr.codigo_centro;
+  let dgtId = attr.codigo_centro;
   if (!dgtId) {
     // console.warn(`Missing codigo_centro for ${attr.nombre}`);
     return;
   }
+
+  // Sanitize: remove any spaces to ensure consistency
+  dgtId = dgtId.replace(/\s+/g, "");
 
   // Split dgtId (e.g. AB018901) into School Code (AB0189) and Section Code (01)
   // Assumption: Last 2 digits are section.
