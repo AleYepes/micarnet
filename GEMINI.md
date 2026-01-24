@@ -1,12 +1,12 @@
 # MiCarnet
 
-The definitive platform for Spanish autoescuelas. Its purpose is to help residents find, vet, and enroll in driving schools, and to help autoescuelas find students and manage their operations.
+The definitive platform for Spanish driving schools (autoescuelas). Its purpose is to help students find, vet, and enroll into driving schools, and to help driving schools generate leads and manage their operations.
 
 ## Features
 
 - Web app: Fullstack Next v16+ with Typescript v5+
-- Styling: Tailwind CSS v4+ and shadch/ui components
-- Database: PostgreSQL with Drizzle ORM and Drizzle-kit migrations
+- Styling: Tailwind CSS v4+ with shadch/ui components
+- Database: PostgreSQL with Drizzle ORM
 - Deployment: Coolify and Docker
 - APIs: oRPC for end-to-end type-safety with OpenAPI integration
 - Runtime env & Package manager: pnpm
@@ -68,9 +68,9 @@ micarnet/
 - Enforce Unidirectional Flow: Ensure apps consume packages, but packages never import from `apps/`.
 - Centralize Data Models: Define all database schemas and types solely in `packages/db` to maintain a single source of truth.
 
-## Testing
+## Testing and Debugging
 
-- Write concise yet informative cosole logs that describe the faulty object/error being debugged. Do not log uninsighful notifications.
+- Write concise yet informative console logs that describe the faulty objects/errors being debugged. Do not log uninsighful notifications.
 
 ## Available Scripts
 

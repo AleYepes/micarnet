@@ -1,20 +1,15 @@
 # Ultracite Code Standards
 
-This project uses **Ultracite**, a zero-config Biome preset that enforces strict code quality standards through automated formatting and linting.
+Ultracite, a Biome preset that enforces code quality standards through automated formatting and linting.
 
 ## Quick Reference
 
-- **Format code**: `pnpm dlx ultracite fix`
-- **Check for issues**: `pnpm dlx ultracite check`
-- **Diagnose setup**: `pnpm dlx ultracite doctor`
-
-Biome (the underlying engine) provides extremely fast Rust-based linting and formatting. Most issues are automatically fixable.
-
----
+- Fix/Format code: `pnpm dlx ultracite fix`
+- Diagnose setup: `pnpm dlx ultracite doctor`
 
 ## Core Principles
 
-Write code that is **accessible, performant, type-safe, and maintainable**. Focus on clarity and explicit intent over brevity.
+Write code that is accessible, performant, type-safe, and maintainable. Focus on clarity and explicit intent over brevity.
 
 ### Type Safety & Explicitness
 
@@ -87,13 +82,13 @@ Write code that is **accessible, performant, type-safe, and maintainable**. Focu
 
 ### Framework-Specific Guidance
 
-**Next.js:**
+Next.js:
 
 - Use Next.js `<Image>` component for images
 - Use `next/head` or App Router metadata API for head elements
 - Use Server Components for async data fetching instead of async Client Components
 
-**React 19+:**
+React 19+:
 
 - Use ref as a prop instead of `React.forwardRef`
 
@@ -108,12 +103,12 @@ Write code that is **accessible, performant, type-safe, and maintainable**. Focu
 
 Biome's linter will catch most issues automatically. Focus your attention on:
 
-1. **Business logic correctness** - Biome can't validate your algorithms
-2. **Meaningful naming** - Use descriptive names for functions, variables, and types
-3. **Architecture decisions** - Component structure, data flow, and API design
-4. **Edge cases** - Handle boundary conditions and error states
-5. **User experience** - Accessibility, performance, and usability considerations
-6. **Documentation** - Add comments for complex logic, but prefer self-documenting code
+1. Business logic correctness - Biome can't validate your algorithms
+2. Meaningful naming - Use descriptive names for functions, variables, and types
+3. Architecture decisions - Component structure, data flow, and API design
+4. Edge cases - Handle boundary conditions and error states
+5. User experience - Accessibility, performance, and usability considerations
+6. Documentation - Add comments for complex logic, but prefer self-documenting code
 
 ---
 

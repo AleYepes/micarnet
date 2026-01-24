@@ -1,6 +1,6 @@
 # Database Schema & Architecture
 
-This package manages the PostgreSQL database using Drizzle ORM.
+This package manages the PostgreSQL database shared by all apps.
 
 ## Schema Organization
 
@@ -31,20 +31,6 @@ Contains the core application business logic (WIP)
 - `students` & `instructors`: User profiles linked to `auth` identities.
 - Transactions: Packages, classes, bookings, and messaging records.
 
-## Data Integration Sources
+## Formatting
 
-### 1. NIE
-
-The primary source for administrative locations, not including neighborhoods, and for goventment statistics.
-
-### 2. OpenStreetMap/Geofabrik
-
-Location Polygon source to add neighborhoods and refine official regions and schools locations with point-in-polygon checks using turf.js.
-
-### 3. DGT Registry
-
-The official source for certified driving schools and exams in Spain.
-
-### 4. Places API
-
-A second Geocoding engine to validate and elaborate DGT data. Primarily for reviews, images, and other rich business data.
+- Use snake case column names
