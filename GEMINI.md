@@ -62,11 +62,12 @@ micarnet/
 └── turbo.json
 ```
 
-## Clean Architecture & Monorepo Principles
+## Monorepo Principles
 
-- Organize Directory Structure: Place deployable units (entry points) in `apps/` and shared, cross-cutting modules (logic, schema, configs) in `packages/`.
-- Enforce Unidirectional Flow: Ensure apps consume packages, but packages never import from `apps/`.
-- Centralize Data Models: Define all database schemas and types solely in `packages/db` to maintain a single source of truth.
+- Place deployable units (entry points) in `apps/` and shared, cross-cutting modules (logic, schema, configs) in `packages/`.
+- Enforce unidirectional flow, ensuring that apps consume packages, but packages never import from `apps/`.
+- Define all database schemas and types solely in `packages/db` to maintain a single source of truth.
+- Use skills when applicable
 
 ## Testing and Debugging
 
@@ -80,5 +81,4 @@ micarnet/
 - `pnpm run db:push`: Push schema changes to database
 - `pnpm run db:studio`: Open database studio UI
 - `pnpm dlx ultracite fix`: Format code
-- `pnpm dlx ultracite check`: Check for issues
 - `pnpm dlx ultracite doctor`: Diagnose ultracite setup
