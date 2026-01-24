@@ -102,26 +102,112 @@ function parseCsvContent(content: string): ExamRecord[] {
   return records;
 }
 
-async function getSchoolMapForBatch(batch: ExamRecord[]) {
-  const dgtIdsSet = new Set<string>();
+function mapExamType(type: string): (typeof examTypeEnum.enumValues)[number] {
+  const normalized = type.toUpperCase().trim();
+  if (normalized.includes("TEÓRICA") || normalized.includes("TEORICA")) {
+    return "theory";
+  }
+  if (normalized.includes("DESTREZA")) {
+    return "skills";
+  }
+  if (normalized.includes("CONDUCCIÓN") || normalized.includes("CONDUCCION")) {
+    return "traffic";
+  }
+  if (normalized.includes("ESPECÍFICO") || normalized.includes("ESPECIFICO")) {
+    return "specific";
+  }
+  return "theory"; // Default or handle error
+}
+
+/**
+ * Fixes names that come with spaces between every character.
+ * e.g. "A U T O E S C U E L A   M I C A R N E T" -> "AUTOESCUELA MICARNET"
+ */
+function fixSpacedName(name: string): string {
+  if (!name) {
+    return name;
+  }
+
+  const trimmed = name.trim();
+  if (trimmed.length < 4) {
+    return name;
+  }
+
+  if (trimmed.includes("   ")) {
+    return trimmed
+      .split("   ")
+      .map((part) => part.replace(/\s/g, ""))
+      .join(" ");
+  }
+
+  const spaces = (trimmed.match(/\s/g) || []).length;
+  if (spaces > trimmed.length / 3) {
+    return trimmed.replace(/\s/g, "");
+  }
+
+  return name;
+}
+
+async function ensureSchoolsExistAndGetMap(batch: ExamRecord[]) {
+  const batchDgtIds = new Set<string>();
+  const dgtIdToRecord = new Map<string, ExamRecord>();
+
   for (const r of batch) {
     if (r.CODIGO_AUTOESCUELA && r.CODIGO_SECCION) {
-      dgtIdsSet.add(`${r.CODIGO_AUTOESCUELA}${r.CODIGO_SECCION}`);
+      const id = `${r.CODIGO_AUTOESCUELA}${r.CODIGO_SECCION}`;
+      batchDgtIds.add(id);
+      if (!dgtIdToRecord.has(id)) {
+        dgtIdToRecord.set(id, r);
+      }
     }
   }
 
-  const dgtIds = Array.from(dgtIdsSet);
+  const dgtIds = Array.from(batchDgtIds);
   if (dgtIds.length === 0) {
     return new Map<string, number>();
   }
 
-  const foundSchools = await db
+  // 1. Fetch existing schools
+  const existingSchools = await db
+    .select({ id: schools.id, dgtId: schools.dgtId })
+    .from(schools)
+    .where(sql`${schools.dgtId} IN ${dgtIds}`);
+
+  const foundDgtIds = new Set(existingSchools.map((s) => s.dgtId));
+  const missingDgtIds = dgtIds.filter((id) => !foundDgtIds.has(id));
+
+  // 2. Insert missing schools
+  if (missingDgtIds.length > 0) {
+    const toInsert = missingDgtIds
+      .map((id) => {
+        const r = dgtIdToRecord.get(id);
+        if (!r) {
+          return null;
+        }
+        return {
+          dgtId: id,
+          dgtSchoolCode: r.CODIGO_AUTOESCUELA,
+          dgtSectionCode: r.CODIGO_SECCION,
+          dgtName: fixSpacedName(r.NOMBRE_AUTOESCUELA),
+          dgtProvince: r.DESC_PROVINCIA,
+          active: false, // Historical/Closed school assumption
+        };
+      })
+      .filter((s) => s !== null) as (typeof schools.$inferInsert)[];
+
+    if (toInsert.length > 0) {
+      await db.insert(schools).values(toInsert).onConflictDoNothing();
+    }
+  }
+
+  // 3. Re-fetch everything to get all IDs (including new ones)
+  const allSchools = await db
     .select({ id: schools.id, dgtId: schools.dgtId })
     .from(schools)
     .where(sql`${schools.dgtId} IN ${dgtIds}`);
 
   const schoolMap = new Map<string, number>();
-  for (const s of foundSchools) {
+  for (const s of allSchools) {
     if (s.dgtId) {
       schoolMap.set(s.dgtId, s.id);
     }
@@ -132,11 +218,9 @@ async function getSchoolMapForBatch(batch: ExamRecord[]) {
 function mapRecordToInsert(r: ExamRecord, schoolId: number) {
   return {
     schoolId,
-    sectionCode: r.CODIGO_SECCION,
     year: Number.parseInt(r.ANYO, 10) || 0,
     month: Number.parseInt(r.MES, 10) || 0,
-    examCenter: r.CENTRO_EXAMEN,
-    examType: r.TIPO_EXAMEN,
+    examType: mapExamType(r.TIPO_EXAMEN),
     licenseType: r.NOMBRE_PERMISO,
     totalPassed: Number.parseInt(r.NUM_APTOS, 10) || 0,
     passedFirstAttempt: Number.parseInt(r.NUM_APTOS_1conv, 10) || 0,
@@ -149,7 +233,7 @@ function mapRecordToInsert(r: ExamRecord, schoolId: number) {
 }
 
 async function processBatch(batch: ExamRecord[]) {
-  const schoolMap = await getSchoolMapForBatch(batch);
+  const schoolMap = await ensureSchoolsExistAndGetMap(batch);
   const toInsert: (typeof examStats.$inferInsert)[] = [];
 
   for (const r of batch) {

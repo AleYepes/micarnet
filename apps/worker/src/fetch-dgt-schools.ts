@@ -49,18 +49,48 @@ interface NeighborhoodData {
   muniName: string;
 }
 
-interface MunicipalityData {
-  id: number;
-  name: string;
-  osmGeometry: unknown;
-}
-
 function normalize(text: string) {
   return text
     .toLowerCase()
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .trim();
+}
+
+/**
+ * Fixes names that come with spaces between every character.
+ * e.g. "A U T O E S C U E L A   M I C A R N E T" -> "AUTOESCUELA MICARNET"
+ */
+function fixSpacedName(name: string): string {
+  if (!name) {
+    return name;
+  }
+
+  // Detect if name has the pattern "C H A R " repeated.
+  // We check if it has many single spaces between single characters.
+  const trimmed = name.trim();
+  if (trimmed.length < 4) {
+    return name;
+  }
+
+  // If the string contains triple spaces, it's likely a word separator in a spaced-out string
+  if (trimmed.includes("   ")) {
+    return trimmed
+      .split("   ")
+      .map((part) => part.replace(/\s/g, ""))
+      .join(" ");
+  }
+
+  // If it doesn't have triple spaces but has many single spaces
+  const spaces = (trimmed.match(/\s/g) || []).length;
+  if (spaces > trimmed.length / 3) {
+    // Highly likely to be spaced out. Try to remove spaces.
+    // However, if there are no triple spaces, we might lose word boundaries.
+    // But usually these names are single words or use triple spaces.
+    return trimmed.replace(/\s/g, "");
+  }
+
+  return name;
 }
 
 async function fetchDgtSchoolsForProvince(provinceIneCode: number) {
@@ -121,20 +151,6 @@ async function getProvinceNeighborhoods(provinceId: number) {
   return neighborhoodsData;
 }
 
-async function getProvinceMunicipalities(
-  provinceId: number
-): Promise<MunicipalityData[]> {
-  const munis = await db
-    .select({
-      id: municipalities.id,
-      name: municipalities.name,
-      osmGeometry: municipalities.osmGeometry,
-    })
-    .from(municipalities)
-    .where(eq(municipalities.provinceId, provinceId));
-  return munis;
-}
-
 function findSpecificNeighborhood(
   attr: DgtSchoolAttributes,
   provinceNeighborhoods: NeighborhoodData[]
@@ -171,74 +187,6 @@ function findSpecificNeighborhood(
   return null;
 }
 
-async function getOrCreateDefaultNeighborhood(muni: MunicipalityData) {
-  // Use negative ID to avoid collision with positive OSM IDs
-  // e.g. Municipality 28079 -> Neighborhood -28079
-  const defaultId = -muni.id;
-  const defaultName = `Unknown - ${muni.name}`;
-
-  const existing = await db.query.neighborhoods.findFirst({
-    where: (n, { eq }) => eq(n.id, defaultId),
-  });
-
-  if (existing) {
-    return existing.id;
-  }
-
-  // Insert default neighborhood using municipality geometry
-  await db
-    .insert(neighborhoods)
-    .values({
-      id: defaultId,
-      name: defaultName,
-      municipalityId: muni.id,
-      osmName: muni.name,
-      osmGeometry: muni.osmGeometry,
-      // osmAdminLevel: 8 // Technically it's level 8 geometry acting as level 9/10
-    })
-    .onConflictDoNothing();
-
-  return defaultId;
-}
-
-async function findMunicipalityAndCreateNeighborhood(
-  attr: DgtSchoolAttributes,
-  provinceMunicipalities: MunicipalityData[]
-): Promise<number | null> {
-  const lat = attr.latitud;
-  const lon = attr.longitud;
-  if (!(lat && lon)) {
-    return null;
-  }
-  const pt = point([lon, lat]);
-
-  for (const muni of provinceMunicipalities) {
-    if (!muni.osmGeometry) {
-      continue;
-    }
-
-    try {
-      const geometry = muni.osmGeometry as Polygon | MultiPolygon;
-      if (booleanPointInPolygon(pt, geometry)) {
-        // Check name match
-        const dgtMuni = attr.municipio || "";
-        const dbMuni = muni.name;
-        const similarity = stringSimilarity.compareTwoStrings(
-          normalize(dgtMuni),
-          normalize(dbMuni)
-        );
-
-        if (similarity > 0.6) {
-          return await getOrCreateDefaultNeighborhood(muni);
-        }
-      }
-    } catch (_e) {
-      // Ignore invalid geometries
-    }
-  }
-  return null;
-}
-
 async function upsertSchool(
   attr: DgtSchoolAttributes,
   neighborhoodId: number | null
@@ -261,7 +209,7 @@ async function upsertSchool(
     dgtId,
     dgtSchoolCode,
     dgtSectionCode,
-    dgtName: attr.nombre,
+    dgtName: fixSpacedName(attr.nombre),
     dgtAddress: attr.direccion,
     dgtMunicipality: attr.municipio,
     dgtProvince: attr.provincia,
@@ -283,23 +231,14 @@ async function upsertSchool(
 
 async function processSchoolRecord(
   attr: DgtSchoolAttributes,
-  provinceNeighborhoods: NeighborhoodData[],
-  provinceMunicipalities: MunicipalityData[]
+  provinceNeighborhoods: NeighborhoodData[]
 ): Promise<DgtSchoolAttributes | null> {
   if (!attr.nombre) {
     return null;
   }
 
   // 1. Try to find specific neighborhood
-  let neighborhoodId = findSpecificNeighborhood(attr, provinceNeighborhoods);
-
-  // 2. If not found, try to find municipality and create fallback
-  if (!neighborhoodId) {
-    neighborhoodId = await findMunicipalityAndCreateNeighborhood(
-      attr,
-      provinceMunicipalities
-    );
-  }
+  const neighborhoodId = findSpecificNeighborhood(attr, provinceNeighborhoods);
 
   let unmatched: DgtSchoolAttributes | null = null;
   if (!neighborhoodId && attr.latitud && attr.longitud) {
@@ -334,38 +273,27 @@ export async function syncDgtSchools() {
 
     // Load Neighborhoods
     const provinceNeighborhoods = await getProvinceNeighborhoods(province.id);
-    // Load Municipalities (for fallback)
-    const provinceMunicipalities = await getProvinceMunicipalities(province.id);
 
     console.log(
-      `  Loaded ${provinceNeighborhoods.length} neighborhoods and ${provinceMunicipalities.length} municipalities for spatial checks.`
+      `  Loaded ${provinceNeighborhoods.length} neighborhoods for spatial checks.`
     );
 
     let unmatchedCount = 0;
-    let lastUnmatched: DgtSchoolAttributes | null = null;
 
     for (const feat of dgtFeatures) {
       const unmatched = await processSchoolRecord(
         feat.attributes,
-        provinceNeighborhoods,
-        provinceMunicipalities
+        provinceNeighborhoods
       );
       if (unmatched) {
         unmatchedCount++;
-        lastUnmatched = unmatched;
       }
     }
 
     if (unmatchedCount > 0) {
       console.log(
-        `  [WARN] ${unmatchedCount} schools not matched to any neighborhood or municipality.`
+        `  [WARN] ${unmatchedCount} schools not matched to any neighborhood.`
       );
-      if (lastUnmatched) {
-        console.log(
-          "  Last unmatched example:",
-          JSON.stringify(lastUnmatched, null, 2)
-        );
-      }
     }
   }
 

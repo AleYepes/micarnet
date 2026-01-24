@@ -4,14 +4,23 @@ import {
   doublePrecision,
   integer,
   jsonb,
+  pgEnum,
   pgTable,
   serial,
+  smallint,
   text,
   timestamp,
   uuid,
 } from "drizzle-orm/pg-core";
 import { user } from "./auth";
 import { neighborhoods } from "./locations";
+
+export const examTypeEnum = pgEnum("exam_type_enum", [
+  "theory",
+  "skills",
+  "traffic",
+  "specific",
+]);
 
 // --- Marketplace Core ---
 
@@ -174,23 +183,21 @@ export const examStats = pgTable("exam_stats", {
   schoolId: integer("school_id")
     .notNull()
     .references(() => schools.id),
-  sectionCode: text("section_code"),
-  year: integer("year").notNull(),
-  month: integer("month").notNull(),
-  examCenter: text("exam_center"),
-  examType: text("exam_type").notNull(),
+  year: smallint("year").notNull(),
+  month: smallint("month").notNull(),
+  examType: examTypeEnum("exam_type").notNull(),
   licenseType: text("license_type").notNull(),
 
-  totalPassed: integer("total_passed").notNull().default(0),
-  passedFirstAttempt: integer("passed_first_attempt").notNull().default(0),
-  passedSecondAttempt: integer("passed_second_attempt").notNull().default(0),
-  passedThirdOrFourthAttempt: integer("passed_third_or_fourth_attempt")
+  totalPassed: smallint("total_passed").notNull().default(0),
+  passedFirstAttempt: smallint("passed_first_attempt").notNull().default(0),
+  passedSecondAttempt: smallint("passed_second_attempt").notNull().default(0),
+  passedThirdOrFourthAttempt: smallint("passed_third_or_fourth_attempt")
     .notNull()
     .default(0),
-  passedFifthOrMoreAttempt: integer("passed_fifth_or_more_attempt")
+  passedFifthOrMoreAttempt: smallint("passed_fifth_or_more_attempt")
     .notNull()
     .default(0),
-  totalFailed: integer("total_failed").notNull().default(0),
+  totalFailed: smallint("total_failed").notNull().default(0),
 });
 
 // --- Relations ---
