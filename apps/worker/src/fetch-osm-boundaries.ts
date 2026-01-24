@@ -99,8 +99,12 @@ interface BoundaryData {
   candidates: BoundaryCandidate[];
 }
 
-async function downloadFile(url: string, dest: string) {
+async function downloadFile(url: string, dest: string, reuse = false) {
   if (await fs.pathExists(dest)) {
+    if (reuse) {
+      console.log(`Reusing existing file: ${dest}`);
+      return;
+    }
     await fs.remove(dest);
   }
 
@@ -353,14 +357,15 @@ async function processRegion(
   communityMap: Map<number, BoundaryData>,
   provinceMap: Map<number, BoundaryData>,
   municipalityMap: Map<number, BoundaryData>,
-  neighborhoodCandidates: { rel: OsmRelation; geometry: GeoJSON.Geometry }[]
+  neighborhoodCandidates: { rel: OsmRelation; geometry: GeoJSON.Geometry }[],
+  reuseFiles = false
 ) {
   const filename = path.basename(url);
   const filePath = path.join(TEMP_DIR, filename);
   const regionSlug = filename.replace("-latest.osm.pbf", "").replace(/-/g, " ");
   const initialNeighborhoodCount = neighborhoodCandidates.length;
 
-  await downloadFile(url, filePath);
+  await downloadFile(url, filePath, reuseFiles);
   console.log(`Processing ${regionSlug}...`);
 
   const allComms = Array.from(communityMap.values());
@@ -769,16 +774,17 @@ function prepareNeighborhoodData(
   parentMuniId: number
 ) {
   const adminLevelStr = cand.rel.tags?.admin_level || "9";
-  const osmId = BigInt(cand.rel.id);
+  const osmId = Number(cand.rel.id);
   const rawName = cand.rel.tags?.name;
-  const isNameArtificial = !rawName;
-  const finalName = rawName || `Neighborhood ${osmId}`;
+
+  if (!rawName) {
+    return null;
+  }
 
   return {
     osmId,
-    name: finalName,
+    name: rawName,
     municipalityId: parentMuniId,
-    isNameArtificial,
     osmAdminLevel: Number.parseInt(adminLevelStr, 10),
     osmGeometry: cand.geometry,
     osmName: rawName,
@@ -791,8 +797,10 @@ function prepareNeighborhoodData(
   };
 }
 
-function filterOutliersInGroup(group: { candArea: number }[]): {
-  validItems: typeof group;
+function filterOutliersInGroup<T extends { candArea: number }>(
+  group: T[]
+): {
+  validItems: T[];
   rejectCount: number;
 } {
   if (group.length < 3) {
@@ -942,9 +950,13 @@ async function processNeighborhoods(
     // Insert valid items for this municipality
 
     for (const item of validItems) {
-      successCount++;
-
       const data = prepareNeighborhoodData(item.cand, item.parentMuniId);
+
+      if (!data) {
+        continue;
+      }
+
+      successCount++;
 
       if (data.osmId < 0n) {
         console.warn(
@@ -952,17 +964,10 @@ async function processNeighborhoods(
         );
       }
 
-      await db
-
-        .insert(neighborhoods)
-
-        .values(data)
-
-        .onConflictDoUpdate({
-          target: neighborhoods.osmId,
-
-          set: data,
-        });
+      await db.insert(neighborhoods).values(data).onConflictDoUpdate({
+        target: neighborhoods.osmId,
+        set: data,
+      });
     }
   }
 
@@ -979,7 +984,7 @@ async function processNeighborhoods(
   console.log(`  - Total processed: ${neighborhoodCandidates.length}`);
 }
 
-export async function syncOsmBoundaries() {
+export async function syncOsmBoundaries({ reuseFiles = false } = {}) {
   await fs.ensureDir(TEMP_DIR);
 
   console.log("Loading official location names from DB...");
@@ -998,7 +1003,8 @@ export async function syncOsmBoundaries() {
         communityMap,
         provinceMap,
         municipalityMap,
-        neighborhoodCandidates
+        neighborhoodCandidates,
+        reuseFiles
       );
     } catch (error) {
       console.error(`Error processing URL ${url}:`, error);

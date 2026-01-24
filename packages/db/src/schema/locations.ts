@@ -1,7 +1,6 @@
 import { relations } from "drizzle-orm";
 import {
   bigint,
-  boolean,
   integer,
   jsonb,
   pgSchema,
@@ -64,8 +63,6 @@ export const neighborhoods = geoSchema.table("neighborhoods", {
   municipalityId: integer("municipality_id")
     .notNull()
     .references(() => municipalities.id),
-  isNameArtificial: boolean("is_name_artificial").default(false).notNull(),
-  type: text("type").default("ADMINISTRATIVE").notNull(), // 'ADMINISTRATIVE' (OSM) or 'COLLOQUIAL' (Google)
   // OSM Data
   osmName: text("osm_name"),
   osmAdminLevel: integer("osm_admin_level"),
