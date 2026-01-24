@@ -797,51 +797,49 @@ function prepareNeighborhoodData(
   };
 }
 
-function filterOutliersInGroup<T extends { candArea: number }>(
-  group: T[]
-): {
-  validItems: T[];
-  rejectCount: number;
-} {
-  if (group.length < 3) {
-    return { validItems: group, rejectCount: 0 };
-  }
+// function filterOutliersInGroup<T extends { candArea: number }>(
+//   group: T[]
+// ): {
+//   validItems: T[];
+//   rejectLowCount: number;
+//   rejectHighCount: number;
+// } {
+//   if (group.length < 3) {
+//     return { validItems: group, rejectLowCount: 0, rejectHighCount: 0 };
+//   }
 
-  const areas = group.map((c) => c.candArea);
+//   const areas = group.map((c) => c.candArea);
+//   const totalArea = areas.reduce((sum, a) => sum + a, 0);
+//   const meanArea = totalArea / areas.length;
+//   const variance =
+//     areas.reduce((sum, a) => sum + (a - meanArea) ** 2, 0) / areas.length;
+//   const stdDev = Math.sqrt(variance);
 
-  const totalArea = areas.reduce((sum, a) => sum + a, 0);
+//   // Only filter if variance is significant
+//   if (stdDev <= meanArea * 0.05) {
+//     return { validItems: group, rejectLowCount: 0, rejectHighCount: 0 };
+//   }
 
-  const meanArea = totalArea / areas.length;
+//   const lowerBound = Math.max(0, meanArea - 3 * stdDev);
+//   const upperBound = meanArea + 3 * stdDev;
 
-  const variance =
-    areas.reduce((sum, a) => sum + (a - meanArea) ** 2, 0) / areas.length;
+//   let rejectLowCount = 0;
+//   let rejectHighCount = 0;
 
-  const stdDev = Math.sqrt(variance);
+//   const validItems = group.filter((item) => {
+//     if (item.candArea < lowerBound) {
+//       rejectLowCount++;
+//       return false;
+//     }
+//     if (item.candArea > upperBound) {
+//       rejectHighCount++;
+//       return false;
+//     }
+//     return true;
+//   });
 
-  // Only filter if variance is significant
-
-  if (stdDev <= meanArea * 0.05) {
-    return { validItems: group, rejectCount: 0 };
-  }
-
-  const lowerBound = Math.max(0, meanArea - 3 * stdDev);
-
-  const upperBound = meanArea + 3 * stdDev;
-
-  let rejectCount = 0;
-
-  const validItems = group.filter((item) => {
-    if (item.candArea < lowerBound || item.candArea > upperBound) {
-      rejectCount++;
-
-      return false;
-    }
-
-    return true;
-  });
-
-  return { validItems, rejectCount };
-}
+//   return { validItems, rejectLowCount, rejectHighCount };
+// }
 
 function collectCandidatesByMuni(
   neighborhoodCandidates: { rel: OsmRelation; geometry: GeoJSON.Geometry }[],
@@ -885,11 +883,9 @@ function collectCandidatesByMuni(
         continue;
       }
 
-      if (parent && candArea < parent.area) {
+      if (parent && candArea <= parent.area) {
         const group = candidatesByMuni.get(parentMuniId) || [];
-
         group.push({ cand, parentMuniId, candArea });
-
         candidatesByMuni.set(parentMuniId, group);
       } else {
         parentSizeRejectCount++;
@@ -936,20 +932,21 @@ async function processNeighborhoods(
   const { candidatesByMuni, orphanedCount, parentSizeRejectCount } =
     collectCandidatesByMuni(neighborhoodCandidates, munisWithMeta);
 
-  let outlierRejectCount = 0;
-
+  //   let outlierLowRejectCount = 0;
+  //   let outlierHighRejectCount = 0;
   let successCount = 0;
 
   // Phase 2: Per-Municipality Outlier Detection & Insertion
-
   for (const [_muniId, group] of candidatesByMuni) {
-    const { validItems, rejectCount } = filterOutliersInGroup(group);
+    // const { validItems, rejectLowCount, rejectHighCount } =
+    //   filterOutliersInGroup(group);
 
-    outlierRejectCount += rejectCount;
+    // outlierLowRejectCount += rejectLowCount;
+    // outlierHighRejectCount += rejectHighCount;
 
     // Insert valid items for this municipality
-
-    for (const item of validItems) {
+    // for (const item of validItems) {
+    for (const item of group) {
       const data = prepareNeighborhoodData(item.cand, item.parentMuniId);
 
       if (!data) {
@@ -958,11 +955,11 @@ async function processNeighborhoods(
 
       successCount++;
 
-      if (data.osmId < 0n) {
-        console.warn(
-          `Found negative OSM ID: ${data.osmId} for neighborhood candidate.`
-        );
-      }
+      //   if (data.osmId < 0n) {
+      //     console.warn(
+      //       `Found negative OSM ID: ${data.osmId} for neighborhood candidate.`
+      //     );
+      //   }
 
       await db.insert(neighborhoods).values(data).onConflictDoUpdate({
         target: neighborhoods.osmId,
@@ -972,15 +969,11 @@ async function processNeighborhoods(
   }
 
   console.log("Neighborhood processing complete.");
-
   console.log(`  - Matched & Inserted: ${successCount}`);
-
   console.log(`  - Orphaned: ${orphanedCount}`);
-
   console.log(`  - Rejected (Parent Size): ${parentSizeRejectCount}`);
-
-  console.log(`  - Rejected (Outlier): ${outlierRejectCount}`);
-
+  //   console.log(`  - Rejected (Outlier Low): ${outlierLowRejectCount}`);
+  //   console.log(`  - Rejected (Outlier High): ${outlierHighRejectCount}`);
   console.log(`  - Total processed: ${neighborhoodCandidates.length}`);
 }
 
