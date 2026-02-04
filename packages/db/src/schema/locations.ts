@@ -6,6 +6,7 @@ import {
   pgSchema,
   serial,
   text,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
 
 export const geoSchema = pgSchema("geo");
@@ -55,23 +56,32 @@ export const municipalities = geoSchema.table("municipalities", {
   osmGeometry: jsonb("osm_geometry"),
 });
 
-export const neighborhoods = geoSchema.table("neighborhoods", {
-  id: serial("id").primaryKey(),
-  osmId: bigint("osm_id", { mode: "number" }).unique(), // OSM ID (Nullable for colloquial neighborhoods)
-  googlePlaceId: text("google_place_id").unique(), // For neighborhoods found via API
-  name: text("name").notNull(),
-  municipalityId: integer("municipality_id")
-    .notNull()
-    .references(() => municipalities.id),
-  // OSM Data
-  osmName: text("osm_name"),
-  osmAdminLevel: integer("osm_admin_level"),
-  osmPopulation: integer("osm_population"),
-  osmPopulationDate: integer("osm_population_date"),
-  osmGeometry: jsonb("osm_geometry"),
-  // Google Data
-  googleViewport: jsonb("google_viewport"), // Vital for colloquial neighborhoods that lack polygons
-});
+export const neighborhoods = geoSchema.table(
+  "neighborhoods",
+  {
+    id: serial("id").primaryKey(),
+    osmId: bigint("osm_id", { mode: "number" }).unique(), // OSM ID (Nullable for colloquial neighborhoods)
+    googlePlaceId: text("google_place_id").unique(), // For neighborhoods found via API
+    name: text("name").notNull(),
+    municipalityId: integer("municipality_id")
+      .notNull()
+      .references(() => municipalities.id),
+    // OSM Data
+    osmName: text("osm_name"),
+    osmAdminLevel: integer("osm_admin_level"),
+    osmPopulation: integer("osm_population"),
+    osmPopulationDate: integer("osm_population_date"),
+    osmGeometry: jsonb("osm_geometry"),
+    // Google Data
+    googleViewport: jsonb("google_viewport"), // Vital for colloquial neighborhoods that lack polygons
+  },
+  (table) => ({
+    nameMuniIdx: uniqueIndex("neighborhood_name_muni_idx").on(
+      table.name,
+      table.municipalityId
+    ),
+  })
+);
 
 export const communitiesRelations = relations(communities, ({ many }) => ({
   provinces: many(provinces),

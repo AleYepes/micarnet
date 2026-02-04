@@ -34,3 +34,4 @@ Contains the core application business logic (WIP)
 ## Formatting
 
 - Use snake case column names
+- Prefix column names according to their source when appropriate(dgt*\*, osm*_, ine\__, etc)

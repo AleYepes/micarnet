@@ -2,6 +2,7 @@ import { db } from "@micarnet/db";
 import {
   communities,
   municipalities,
+  neighborhoods,
   provinces,
 } from "@micarnet/db/schema/locations";
 import axios from "axios";
@@ -177,6 +178,27 @@ export async function syncLocations() {
     );
     if (i % 1000 === 0) {
       console.log(`Processed ${i} municipalities...`);
+    }
+  }
+
+  // 4. Create placeholder neighborhoods for each municipality
+  console.log("Creating placeholder neighborhoods for each municipality...");
+  const allMunicipalities = await db.select().from(municipalities);
+  for (let i = 0; i < allMunicipalities.length; i += chunkSize) {
+    const chunk = allMunicipalities.slice(i, i + chunkSize);
+    await Promise.all(
+      chunk.map((m) =>
+        db
+          .insert(neighborhoods)
+          .values({
+            name: `Resto de ${m.name}`,
+            municipalityId: m.id,
+          })
+          .onConflictDoNothing()
+      )
+    );
+    if (i % 1000 === 0) {
+      console.log(`Processed ${i} placeholders...`);
     }
   }
 

@@ -278,7 +278,7 @@ async function syncMunicipalityStats() {
 
   console.log(`Found ${muniRows.length} municipalities. Processing all.`);
 
-  const chunkSize = 20;
+  const chunkSize = 10;
   for (let i = 0; i < munisToProcess.length; i += chunkSize) {
     const chunk = munisToProcess.slice(i, i + chunkSize);
     await Promise.all(chunk.map(processMunicipality));

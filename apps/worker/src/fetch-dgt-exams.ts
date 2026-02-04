@@ -1,10 +1,16 @@
 import { db } from "@micarnet/db";
+import {
+  municipalities,
+  neighborhoods,
+  provinces,
+} from "@micarnet/db/schema/locations";
 import { examStats, schools } from "@micarnet/db/schema/schools";
 import AdmZip from "adm-zip";
 import axios from "axios";
 import { load } from "cheerio";
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import iconv from "iconv-lite";
+import stringSimilarity from "string-similarity";
 
 const DGT_EXAMS_URL =
   "https://www.dgt.es/menusecundario/dgt-en-cifras/matraba-listados/conductores-autoescuelas.html";
@@ -33,6 +39,17 @@ interface ExamRecord {
 interface ZipLink {
   url: string;
   text: string;
+}
+
+function normalize(text: string) {
+  if (!text) {
+    return "";
+  }
+  return text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim();
 }
 
 async function fetchZipLinks(): Promise<ZipLink[]> {
@@ -148,6 +165,113 @@ function fixSpacedName(name: string): string {
   return name;
 }
 
+// Caching for fuzzy matches
+const provinceCache = new Map<string, number>();
+const municipalityCache = new Map<string, number>();
+const neighborhoodPlaceholderCache = new Map<number, number>();
+
+let cachedProvinces: (typeof provinces.$inferSelect)[] | null = null;
+
+async function findProvinceId(name: string) {
+  const normalized = normalize(name);
+  if (!normalized) {
+    return null;
+  }
+  if (provinceCache.has(normalized)) {
+    return provinceCache.get(normalized);
+  }
+
+  if (!cachedProvinces) {
+    cachedProvinces = await db.select().from(provinces);
+  }
+
+  const matches = stringSimilarity.findBestMatch(
+    normalized,
+    cachedProvinces.map((p) => normalize(p.name))
+  );
+
+  if (matches.bestMatch.rating > 0.7) {
+    const provinceId = cachedProvinces[matches.bestMatchIndex].id;
+    provinceCache.set(normalized, provinceId);
+    return provinceId;
+  }
+  return null;
+}
+
+async function findMunicipalityId(name: string, provinceId: number) {
+  const normalized = normalize(name);
+  if (!normalized) {
+    return null;
+  }
+  const cacheKey = `${provinceId}:${normalized}`;
+  if (municipalityCache.has(cacheKey)) {
+    return municipalityCache.get(cacheKey);
+  }
+
+  const provinceMunis = await db
+    .select()
+    .from(municipalities)
+    .where(eq(municipalities.provinceId, provinceId));
+
+  if (provinceMunis.length === 0) {
+    return null;
+  }
+
+  const matches = stringSimilarity.findBestMatch(
+    normalized,
+    provinceMunis.map((m) => normalize(m.name))
+  );
+
+  if (matches.bestMatch.rating > 0.6) {
+    const muniId = provinceMunis[matches.bestMatchIndex].id;
+    municipalityCache.set(cacheKey, muniId);
+    return muniId;
+  }
+  return null;
+}
+
+async function getPlaceholderNeighborhoodId(municipalityId: number) {
+  if (neighborhoodPlaceholderCache.has(municipalityId)) {
+    return neighborhoodPlaceholderCache.get(municipalityId);
+  }
+
+  const muni = await db
+    .select()
+    .from(municipalities)
+    .where(eq(municipalities.id, municipalityId))
+    .limit(1);
+
+  if (muni.length === 0) {
+    return null;
+  }
+
+  const placeholder = await db
+    .select({ id: neighborhoods.id })
+    .from(neighborhoods)
+    .where(
+      sql`${neighborhoods.municipalityId} = ${municipalityId} AND ${neighborhoods.name} = ${`Resto de ${muni[0].name}`}`
+    )
+    .limit(1);
+
+  if (placeholder.length > 0) {
+    neighborhoodPlaceholderCache.set(municipalityId, placeholder[0].id);
+    return placeholder[0].id;
+  }
+  return null;
+}
+
+async function getNeighborhoodIdForRecord(r: ExamRecord) {
+  let neighborhoodId: number | null = null;
+  const provId = await findProvinceId(r.DESC_PROVINCIA);
+  if (provId) {
+    const muniId = await findMunicipalityId(r.CENTRO_EXAMEN, provId);
+    if (muniId) {
+      neighborhoodId = await getPlaceholderNeighborhoodId(muniId);
+    }
+  }
+  return neighborhoodId;
+}
+
 async function ensureSchoolsExistAndGetMap(batch: ExamRecord[]) {
   const batchDgtIds = new Set<string>();
   const dgtIdToRecord = new Map<string, ExamRecord>();
@@ -178,22 +302,26 @@ async function ensureSchoolsExistAndGetMap(batch: ExamRecord[]) {
 
   // 2. Insert missing schools
   if (missingDgtIds.length > 0) {
-    const toInsert = missingDgtIds
-      .map((id) => {
-        const r = dgtIdToRecord.get(id);
-        if (!r) {
-          return null;
-        }
-        return {
-          dgtId: id,
-          dgtSchoolCode: r.CODIGO_AUTOESCUELA,
-          dgtSectionCode: r.CODIGO_SECCION,
-          dgtName: fixSpacedName(r.NOMBRE_AUTOESCUELA),
-          dgtProvince: r.DESC_PROVINCIA,
-          active: false, // Historical/Closed school assumption
-        };
-      })
-      .filter((s) => s !== null) as (typeof schools.$inferInsert)[];
+    const toInsert: (typeof schools.$inferInsert)[] = [];
+    for (const id of missingDgtIds) {
+      const r = dgtIdToRecord.get(id);
+      if (!r) {
+        continue;
+      }
+
+      const neighborhoodId = await getNeighborhoodIdForRecord(r);
+
+      toInsert.push({
+        dgtId: id,
+        dgtSchoolCode: r.CODIGO_AUTOESCUELA,
+        dgtSectionCode: r.CODIGO_SECCION,
+        dgtName: fixSpacedName(r.NOMBRE_AUTOESCUELA),
+        dgtProvince: r.DESC_PROVINCIA,
+        dgtMunicipality: r.CENTRO_EXAMEN,
+        neighborhoodId,
+        active: false,
+      });
+    }
 
     if (toInsert.length > 0) {
       await db.insert(schools).values(toInsert).onConflictDoNothing();

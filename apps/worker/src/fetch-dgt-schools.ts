@@ -8,7 +8,7 @@ import { schools } from "@micarnet/db/schema/schools";
 import booleanPointInPolygon from "@turf/boolean-point-in-polygon";
 import { point } from "@turf/helpers";
 import axios from "axios";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import type { MultiPolygon, Polygon } from "geojson";
 import stringSimilarity from "string-similarity";
 
@@ -47,6 +47,13 @@ interface NeighborhoodData {
   municipalityId: number;
   osmGeometry: unknown;
   muniName: string;
+}
+
+interface MunicipalityData {
+  id: number;
+  name: string;
+  osmGeometry: unknown;
+  placeholderId: number | null;
 }
 
 function normalize(text: string) {
@@ -121,18 +128,6 @@ async function fetchDgtSchoolsForProvince(provinceIneCode: number) {
 }
 
 async function getProvinceNeighborhoods(provinceId: number) {
-  const munis = await db
-    .select({
-      id: municipalities.id,
-      name: municipalities.name,
-    })
-    .from(municipalities)
-    .where(eq(municipalities.provinceId, provinceId));
-
-  if (munis.length === 0) {
-    return [];
-  }
-
   const neighborhoodsData = await db
     .select({
       id: neighborhoods.id,
@@ -151,6 +146,36 @@ async function getProvinceNeighborhoods(provinceId: number) {
   return neighborhoodsData;
 }
 
+async function getProvinceMunicipalities(provinceId: number) {
+  const munis = await db
+    .select({
+      id: municipalities.id,
+      name: municipalities.name,
+      osmGeometry: municipalities.osmGeometry,
+    })
+    .from(municipalities)
+    .where(eq(municipalities.provinceId, provinceId));
+
+  const muniData: MunicipalityData[] = [];
+
+  for (const m of munis) {
+    const placeholder = await db
+      .select({ id: neighborhoods.id })
+      .from(neighborhoods)
+      .where(
+        sql`${neighborhoods.municipalityId} = ${m.id} AND ${neighborhoods.name} = ${`Resto de ${m.name}`}`
+      )
+      .limit(1);
+
+    muniData.push({
+      ...m,
+      placeholderId: placeholder[0]?.id || null,
+    });
+  }
+
+  return muniData;
+}
+
 function findSpecificNeighborhood(
   attr: DgtSchoolAttributes,
   provinceNeighborhoods: NeighborhoodData[]
@@ -164,7 +189,7 @@ function findSpecificNeighborhood(
   const pt = point([lon, lat]);
 
   for (const nb of provinceNeighborhoods) {
-    if (!nb.osmGeometry) {
+    if (!nb.osmGeometry || nb.name.startsWith("Resto de ")) {
       continue;
     }
     try {
@@ -179,6 +204,34 @@ function findSpecificNeighborhood(
         if (similarity > 0.6) {
           return nb.id;
         }
+      }
+    } catch (_e) {
+      // Ignore invalid geometries
+    }
+  }
+  return null;
+}
+
+function findMunicipalityPlaceholder(
+  attr: DgtSchoolAttributes,
+  provinceMunicipalities: MunicipalityData[]
+): number | null {
+  const lat = attr.latitud;
+  const lon = attr.longitud;
+  if (!(lat && lon)) {
+    return null;
+  }
+
+  const pt = point([lon, lat]);
+
+  for (const muni of provinceMunicipalities) {
+    if (!muni.osmGeometry) {
+      continue;
+    }
+    try {
+      const geometry = muni.osmGeometry as Polygon | MultiPolygon;
+      if (booleanPointInPolygon(pt, geometry)) {
+        return muni.placeholderId;
       }
     } catch (_e) {
       // Ignore invalid geometries
@@ -231,14 +284,20 @@ async function upsertSchool(
 
 async function processSchoolRecord(
   attr: DgtSchoolAttributes,
-  provinceNeighborhoods: NeighborhoodData[]
+  provinceNeighborhoods: NeighborhoodData[],
+  provinceMunicipalities: MunicipalityData[]
 ): Promise<DgtSchoolAttributes | null> {
   if (!attr.nombre) {
     return null;
   }
 
   // 1. Try to find specific neighborhood
-  const neighborhoodId = findSpecificNeighborhood(attr, provinceNeighborhoods);
+  let neighborhoodId = findSpecificNeighborhood(attr, provinceNeighborhoods);
+
+  // 2. Try to find municipality placeholder if specific neighborhood match fails
+  if (!neighborhoodId) {
+    neighborhoodId = findMunicipalityPlaceholder(attr, provinceMunicipalities);
+  }
 
   let unmatched: DgtSchoolAttributes | null = null;
   if (!neighborhoodId && attr.latitud && attr.longitud) {
@@ -273,9 +332,10 @@ export async function syncDgtSchools() {
 
     // Load Neighborhoods
     const provinceNeighborhoods = await getProvinceNeighborhoods(province.id);
+    const provinceMunicipalities = await getProvinceMunicipalities(province.id);
 
     console.log(
-      `  Loaded ${provinceNeighborhoods.length} neighborhoods for spatial checks.`
+      `  Loaded ${provinceNeighborhoods.length} neighborhoods and ${provinceMunicipalities.length} municipalities for spatial checks.`
     );
 
     let unmatchedCount = 0;
@@ -283,7 +343,8 @@ export async function syncDgtSchools() {
     for (const feat of dgtFeatures) {
       const unmatched = await processSchoolRecord(
         feat.attributes,
-        provinceNeighborhoods
+        provinceNeighborhoods,
+        provinceMunicipalities
       );
       if (unmatched) {
         unmatchedCount++;
@@ -292,7 +353,7 @@ export async function syncDgtSchools() {
 
     if (unmatchedCount > 0) {
       console.log(
-        `  [WARN] ${unmatchedCount} schools not matched to any neighborhood.`
+        `  [WARN] ${unmatchedCount} schools not matched to any neighborhood or municipality.`
       );
     }
   }

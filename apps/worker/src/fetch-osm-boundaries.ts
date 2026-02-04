@@ -13,7 +13,7 @@ import type { Feature, MultiPolygon, Polygon } from "@turf/helpers";
 import { feature, featureCollection, point } from "@turf/helpers";
 import { union } from "@turf/union";
 import axios from "axios";
-import { eq } from "drizzle-orm";
+import { eq, isNotNull } from "drizzle-orm";
 import fs from "fs-extra";
 import { createOSMStream } from "osm-pbf-parser-node";
 import osmtogeojson from "osmtogeojson";
@@ -357,13 +357,16 @@ async function processRegion(
   communityMap: Map<number, BoundaryData>,
   provinceMap: Map<number, BoundaryData>,
   municipalityMap: Map<number, BoundaryData>,
-  neighborhoodCandidates: { rel: OsmRelation; geometry: GeoJSON.Geometry }[],
+  neighborhoodCandidates: Map<
+    number,
+    { rel: OsmRelation; geometry: GeoJSON.Geometry }
+  >,
   reuseFiles = false
 ) {
   const filename = path.basename(url);
   const filePath = path.join(TEMP_DIR, filename);
   const regionSlug = filename.replace("-latest.osm.pbf", "").replace(/-/g, " ");
-  const initialNeighborhoodCount = neighborhoodCandidates.length;
+  const initialNeighborhoodCount = neighborhoodCandidates.size;
 
   await downloadFile(url, filePath, reuseFiles);
   console.log(`Processing ${regionSlug}...`);
@@ -409,7 +412,10 @@ async function processRegion(
     }
 
     if (adminLevel === 9 || adminLevel === 10) {
-      neighborhoodCandidates.push({ rel, geometry: featureData.geometry });
+      neighborhoodCandidates.set(rel.id, {
+        rel,
+        geometry: featureData.geometry,
+      });
       continue;
     }
 
@@ -430,7 +436,7 @@ async function processRegion(
   }
 
   console.log(
-    `  > Found ${neighborhoodCandidates.length - initialNeighborhoodCount} neighborhood candidates (levels 9/10) in this region.`
+    `  > Found ${neighborhoodCandidates.size - initialNeighborhoodCount} neighborhood candidates (levels 9/10) in this region.`
   );
 }
 
@@ -907,6 +913,9 @@ async function processNeighborhoods(
     `Processing ${neighborhoodCandidates.length} neighborhood candidates using resolved municipality geometries...`
   );
 
+  // Clear existing OSM-sourced neighborhoods to avoid unique constraint conflicts from previous failed runs
+  await db.delete(neighborhoods).where(isNotNull(neighborhoods.osmId));
+
   // Pre-calculate municipality areas
 
   const munisWithMeta = munisWithGeo.map((m) => {
@@ -944,27 +953,56 @@ async function processNeighborhoods(
     // outlierLowRejectCount += rejectLowCount;
     // outlierHighRejectCount += rejectHighCount;
 
-    // Insert valid items for this municipality
-    // for (const item of validItems) {
+    // Deduplicate by name within this municipality
+    const nameMap = new Map<
+      string,
+      NonNullable<ReturnType<typeof prepareNeighborhoodData>>
+    >();
     for (const item of group) {
       const data = prepareNeighborhoodData(item.cand, item.parentMuniId);
-
       if (!data) {
         continue;
       }
 
+      const existing = nameMap.get(data.name);
+      if (!existing) {
+        nameMap.set(data.name, data);
+        continue;
+      }
+
+      // Selection logic:
+      // 1. Prefer higher admin level (10 is more specific than 9)
+      // 2. Prefer if it has population data
+      const currentHasPop = data.osmPopulation !== null;
+      const existingHasPop = existing.osmPopulation !== null;
+
+      const shouldReplace =
+        data.osmAdminLevel > existing.osmAdminLevel ||
+        (!existingHasPop && currentHasPop);
+
+      if (shouldReplace) {
+        nameMap.set(data.name, data);
+      }
+    }
+
+    // Insert deduplicated items for this municipality
+    for (const data of nameMap.values()) {
       successCount++;
 
-      //   if (data.osmId < 0n) {
-      //     console.warn(
-      //       `Found negative OSM ID: ${data.osmId} for neighborhood candidate.`
-      //     );
-      //   }
-
-      await db.insert(neighborhoods).values(data).onConflictDoUpdate({
-        target: neighborhoods.osmId,
-        set: data,
-      });
+      await db
+        .insert(neighborhoods)
+        .values(data)
+        .onConflictDoUpdate({
+          target: [neighborhoods.name, neighborhoods.municipalityId],
+          set: {
+            osmId: data.osmId,
+            osmName: data.osmName,
+            osmAdminLevel: data.osmAdminLevel,
+            osmPopulation: data.osmPopulation,
+            osmPopulationDate: data.osmPopulationDate,
+            osmGeometry: data.osmGeometry,
+          },
+        });
     }
   }
 
@@ -984,10 +1022,13 @@ export async function syncOsmBoundaries({ reuseFiles = false } = {}) {
   const { communityMap, provinceMap, municipalityMap } =
     await loadOfficialBoundaries();
 
-  const neighborhoodCandidates: {
-    rel: OsmRelation;
-    geometry: GeoJSON.Geometry;
-  }[] = [];
+  const neighborhoodCandidates = new Map<
+    number,
+    {
+      rel: OsmRelation;
+      geometry: GeoJSON.Geometry;
+    }
+  >();
 
   for (const url of REGION_URLS) {
     try {
@@ -1029,7 +1070,10 @@ export async function syncOsmBoundaries({ reuseFiles = false } = {}) {
     municipalityMap
   );
 
-  await processNeighborhoods(neighborhoodCandidates, munisWithGeo);
+  await processNeighborhoods(
+    Array.from(neighborhoodCandidates.values()),
+    munisWithGeo
+  );
 
   console.log("OSM Boundary Sync Complete.");
 }
