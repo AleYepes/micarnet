@@ -11,6 +11,12 @@ import axios from "axios";
 import { eq, sql } from "drizzle-orm";
 import type { MultiPolygon, Polygon } from "geojson";
 import stringSimilarity from "string-similarity";
+import {
+  cleanMuniName,
+  getNameVariants,
+  isSmartMatch,
+  normalize,
+} from "./lib/normalization";
 
 const DGT_SCHOOLS_URL =
   "https://services3.arcgis.com/TXNiwnLDifb5lMaR/arcgis/rest/services/Autoescuela_pre/FeatureServer/0/query";
@@ -54,14 +60,6 @@ interface MunicipalityData {
   name: string;
   osmGeometry: unknown;
   placeholderId: number | null;
-}
-
-function normalize(text: string) {
-  return text
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .trim();
 }
 
 /**
@@ -240,9 +238,55 @@ function findMunicipalityPlaceholder(
   return null;
 }
 
+function findMunicipalityByName(
+  attr: DgtSchoolAttributes,
+  provinceMunicipalities: MunicipalityData[]
+): number | null {
+  const normalizedDgtMuni = normalize(cleanMuniName(attr.municipio || ""));
+  if (!normalizedDgtMuni) {
+    return null;
+  }
+
+  // Exact match or smart match
+  const match = provinceMunicipalities.find((m) => {
+    const variants = getNameVariants(m.name);
+    return variants.some((variant) => isSmartMatch(normalizedDgtMuni, variant));
+  });
+
+  if (match) {
+    return match.placeholderId;
+  }
+
+  // Fuzzy match as final fallback
+  const muniVariantStrings = provinceMunicipalities.flatMap((m) =>
+    getNameVariants(m.name)
+  );
+  const matches = stringSimilarity.findBestMatch(
+    normalizedDgtMuni,
+    muniVariantStrings
+  );
+
+  if (matches.bestMatch.rating > 0.6) {
+    // We need to find the municipality again because we flattened variants
+
+    const bestVariant = muniVariantStrings[matches.bestMatchIndex];
+
+    if (bestVariant) {
+      const bestMatch = provinceMunicipalities.find((m) =>
+        getNameVariants(m.name).includes(bestVariant)
+      );
+
+      return bestMatch?.placeholderId || null;
+    }
+  }
+
+  return null;
+}
+
 async function upsertSchool(
   attr: DgtSchoolAttributes,
-  neighborhoodId: number | null
+  neighborhoodId: number | null,
+  coordinateIssue = false
 ) {
   let dgtId = attr.codigo_centro;
   if (!dgtId) {
@@ -272,6 +316,7 @@ async function upsertSchool(
     dgtLatitude: attr.latitud,
     dgtLongitude: attr.longitud,
     neighborhoodId,
+    coordinateIssue,
     updatedAt: new Date(),
   };
 
@@ -291,12 +336,20 @@ async function processSchoolRecord(
     return null;
   }
 
-  // 1. Try to find specific neighborhood
   let neighborhoodId = findSpecificNeighborhood(attr, provinceNeighborhoods);
+  let coordinateIssue = false;
 
-  // 2. Try to find municipality placeholder if specific neighborhood match fails
   if (!neighborhoodId) {
     neighborhoodId = findMunicipalityPlaceholder(attr, provinceMunicipalities);
+  }
+
+  if (!neighborhoodId) {
+    // Fallback to string matching
+    neighborhoodId = findMunicipalityByName(attr, provinceMunicipalities);
+    if (neighborhoodId && attr.latitud && attr.longitud) {
+      // If we matched by name but not by coordinates, flag it
+      coordinateIssue = true;
+    }
   }
 
   let unmatched: DgtSchoolAttributes | null = null;
@@ -304,7 +357,7 @@ async function processSchoolRecord(
     unmatched = attr;
   }
 
-  await upsertSchool(attr, neighborhoodId);
+  await upsertSchool(attr, neighborhoodId, coordinateIssue);
   return unmatched;
 }
 

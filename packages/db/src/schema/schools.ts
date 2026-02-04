@@ -69,6 +69,7 @@ export const schools = pgTable("schools", {
   lastGoogleSync: timestamp("last_google_sync"),
   googleMatchConfidence: doublePrecision("google_match_confidence"),
 
+  coordinateIssue: boolean("coordinate_issue").default(false).notNull(),
   active: boolean("active").default(true).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at")

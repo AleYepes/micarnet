@@ -6,6 +6,7 @@ import {
   neighborhoods,
   provinces,
 } from "@micarnet/db/schema/locations";
+import { schools, students } from "@micarnet/db/schema/schools";
 import area from "@turf/area";
 import bbox from "@turf/bbox";
 import booleanPointInPolygon from "@turf/boolean-point-in-polygon";
@@ -13,7 +14,7 @@ import type { Feature, MultiPolygon, Polygon } from "@turf/helpers";
 import { feature, featureCollection, point } from "@turf/helpers";
 import { union } from "@turf/union";
 import axios from "axios";
-import { eq, isNotNull } from "drizzle-orm";
+import { and, eq, isNotNull, notExists } from "drizzle-orm";
 import fs from "fs-extra";
 import { createOSMStream } from "osm-pbf-parser-node";
 import osmtogeojson from "osmtogeojson";
@@ -913,8 +914,35 @@ async function processNeighborhoods(
     `Processing ${neighborhoodCandidates.length} neighborhood candidates using resolved municipality geometries...`
   );
 
-  // Clear existing OSM-sourced neighborhoods to avoid unique constraint conflicts from previous failed runs
-  await db.delete(neighborhoods).where(isNotNull(neighborhoods.osmId));
+  // Clear existing OSM-sourced neighborhoods to avoid unique constraint conflicts from previous runs.
+  // We skip those currently referenced by schools or students to avoid foreign key violations.
+  await db
+    .delete(neighborhoods)
+    .where(
+      and(
+        isNotNull(neighborhoods.osmId),
+        notExists(
+          db
+            .select()
+            .from(schools)
+            .where(eq(schools.neighborhoodId, neighborhoods.id))
+        ),
+        notExists(
+          db
+            .select()
+            .from(students)
+            .where(eq(students.neighborhoodId, neighborhoods.id))
+        )
+      )
+    );
+
+  // For the remaining OSM neighborhoods (those in use), we clear their osmId to avoid
+  // unique constraint conflicts if OSM IDs have shifted between names. They will be
+  // re-linked by name during the upsert phase if they still exist in OSM.
+  await db
+    .update(neighborhoods)
+    .set({ osmId: null })
+    .where(isNotNull(neighborhoods.osmId));
 
   // Pre-calculate municipality areas
 

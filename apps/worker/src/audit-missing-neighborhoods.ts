@@ -1,3 +1,4 @@
+import { pathToFileURL } from "node:url";
 import { db } from "@micarnet/db";
 import {
   municipalities,
@@ -148,6 +149,49 @@ function findMunicipalityId(
   return null;
 }
 
+interface MunicipalityVariant {
+  id: number;
+  variant: string;
+}
+
+function buildMunicipalityVariants(allMunicipalities: Loc[]) {
+  const variants: MunicipalityVariant[] = [];
+  for (const municipality of allMunicipalities) {
+    const n = normalize(municipality.name);
+    if (!n) {
+      continue;
+    }
+    const nameVariants = n.includes("/")
+      ? [n, ...n.split("/").map((s) => s.trim())]
+      : [n];
+    for (const variant of nameVariants) {
+      variants.push({ id: municipality.id, variant });
+    }
+  }
+  return variants;
+}
+
+function findMunicipalityIdFallback(
+  name: string,
+  municipalityVariants: MunicipalityVariant[],
+  municipalityVariantStrings: string[]
+) {
+  const cleaned = cleanMuniName(name);
+  const normalized = normalize(cleaned);
+  if (!normalized || municipalityVariants.length === 0) {
+    return null;
+  }
+
+  const matches = stringSimilarity.findBestMatch(
+    normalized,
+    municipalityVariantStrings
+  );
+  if (matches.bestMatch.rating > 0.6) {
+    return municipalityVariants[matches.bestMatchIndex]?.id ?? null;
+  }
+  return null;
+}
+
 interface Summary {
   active: {
     total: number;
@@ -156,6 +200,7 @@ interface Summary {
     muniMissingPlaceholder: number;
     provinceNotFound: number;
     muniNotFound: number;
+    fallbackMunicipalityMatch: number;
     other: number;
   };
   inactive: {
@@ -163,6 +208,7 @@ interface Summary {
     provinceNotFound: number;
     muniNotFound: number;
     muniMissingPlaceholder: number;
+    fallbackMunicipalityMatch: number;
     other: number;
   };
 }
@@ -201,34 +247,68 @@ function checkActiveContainment(
   }
 }
 
+function tryResolveMuniId(
+  s: School,
+  allProvinces: Loc[],
+  allMunicipalities: Loc[],
+  municipalityVariants: MunicipalityVariant[],
+  municipalityVariantStrings: string[]
+) {
+  const provId = findProvinceId(s.dgtProvince || "", allProvinces);
+  let muniId =
+    provId &&
+    findMunicipalityId(s.dgtMunicipality || "", provId, allMunicipalities);
+  let isFallback = false;
+
+  if (!muniId) {
+    muniId = findMunicipalityIdFallback(
+      s.dgtMunicipality || "",
+      municipalityVariants,
+      municipalityVariantStrings
+    );
+    if (muniId) {
+      isFallback = true;
+    }
+  }
+
+  return { provId, muniId, isFallback };
+}
+
 function analyzeActive(
   active: School[],
   allProvinces: Loc[],
   allMunicipalities: Loc[],
   allNeighborhoods: Neighborhood[],
   summary: Summary,
-  activeProvinceNotFound: Set<string>
+  activeProvinceNotFound: Set<string>,
+  municipalityVariants: MunicipalityVariant[],
+  municipalityVariantStrings: string[]
 ) {
   for (const s of active) {
-    if (!(s.dgtLatitude && s.dgtLongitude)) {
+    if (s.dgtLatitude == null || s.dgtLongitude == null) {
       summary.active.other++;
       continue;
     }
 
-    const provId = findProvinceId(s.dgtProvince || "", allProvinces);
-    if (!provId) {
-      summary.active.provinceNotFound++;
-      activeProvinceNotFound.add(s.dgtProvince || "NULL");
-      continue;
+    const { provId, muniId, isFallback } = tryResolveMuniId(
+      s,
+      allProvinces,
+      allMunicipalities,
+      municipalityVariants,
+      municipalityVariantStrings
+    );
+
+    if (isFallback) {
+      summary.active.fallbackMunicipalityMatch++;
     }
 
-    const muniId = findMunicipalityId(
-      s.dgtMunicipality || "",
-      provId,
-      allMunicipalities
-    );
     if (!muniId) {
-      summary.active.muniNotFound++;
+      if (provId) {
+        summary.active.muniNotFound++;
+      } else {
+        summary.active.provinceNotFound++;
+        activeProvinceNotFound.add(s.dgtProvince || "NULL");
+      }
       continue;
     }
 
@@ -250,23 +330,32 @@ function analyzeInactive(
   allMunicipalities: Loc[],
   allNeighborhoods: Neighborhood[],
   summary: Summary,
-  inactiveMuniNotFound: Set<string>
+  inactiveProvinceNotFound: Set<string>,
+  inactiveMuniNotFound: Set<string>,
+  municipalityVariants: MunicipalityVariant[],
+  municipalityVariantStrings: string[]
 ) {
   for (const s of inactive) {
-    const provId = findProvinceId(s.dgtProvince || "", allProvinces);
-    if (!provId) {
-      summary.inactive.provinceNotFound++;
-      continue;
+    const { provId, muniId, isFallback } = tryResolveMuniId(
+      s,
+      allProvinces,
+      allMunicipalities,
+      municipalityVariants,
+      municipalityVariantStrings
+    );
+
+    if (isFallback) {
+      summary.inactive.fallbackMunicipalityMatch++;
     }
 
-    const muniId = findMunicipalityId(
-      s.dgtMunicipality || "",
-      provId,
-      allMunicipalities
-    );
     if (!muniId) {
-      summary.inactive.muniNotFound++;
-      inactiveMuniNotFound.add(`${s.dgtMunicipality} (Prov ID: ${provId})`);
+      if (provId) {
+        summary.inactive.muniNotFound++;
+        inactiveMuniNotFound.add(`${s.dgtMunicipality} (Prov ID: ${provId})`);
+      } else {
+        summary.inactive.provinceNotFound++;
+        inactiveProvinceNotFound.add(s.dgtProvince || "NULL");
+      }
       continue;
     }
 
@@ -281,7 +370,7 @@ function analyzeInactive(
   }
 }
 
-async function audit() {
+export async function auditMissingNeighborhoods() {
   console.log("Auditing schools with missing neighborhoodId...");
 
   const missing = await db
@@ -312,6 +401,7 @@ async function audit() {
       muniMissingPlaceholder: 0,
       provinceNotFound: 0,
       muniNotFound: 0,
+      fallbackMunicipalityMatch: 0,
       other: 0,
     },
     inactive: {
@@ -319,12 +409,18 @@ async function audit() {
       provinceNotFound: 0,
       muniNotFound: 0,
       muniMissingPlaceholder: 0,
+      fallbackMunicipalityMatch: 0,
       other: 0,
     },
   };
 
   const activeProvinceNotFound = new Set<string>();
+  const inactiveProvinceNotFound = new Set<string>();
   const inactiveMuniNotFound = new Set<string>();
+  const municipalityVariants = buildMunicipalityVariants(allMunicipalities);
+  const municipalityVariantStrings = municipalityVariants.map(
+    (variant) => variant.variant
+  );
 
   analyzeActive(
     active,
@@ -332,7 +428,9 @@ async function audit() {
     allMunicipalities,
     allNeighborhoods,
     summary,
-    activeProvinceNotFound
+    activeProvinceNotFound,
+    municipalityVariants,
+    municipalityVariantStrings
   );
   analyzeInactive(
     inactive,
@@ -340,7 +438,10 @@ async function audit() {
     allMunicipalities,
     allNeighborhoods,
     summary,
-    inactiveMuniNotFound
+    inactiveProvinceNotFound,
+    inactiveMuniNotFound,
+    municipalityVariants,
+    municipalityVariantStrings
   );
 
   console.log("\nAudit Summary:");
@@ -352,9 +453,15 @@ async function audit() {
 
   console.log("\nINACTIVE SCHOOLS:", summary.inactive);
   console.log(
+    "Unmatched Inactive Provinces (First 20):",
+    Array.from(inactiveProvinceNotFound).slice(0, 20)
+  );
+  console.log(
     "Unmatched Inactive Municipalities (First 20):",
     Array.from(inactiveMuniNotFound).slice(0, 20)
   );
 }
 
-audit().catch(console.error);
+if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
+  auditMissingNeighborhoods().catch(console.error);
+}

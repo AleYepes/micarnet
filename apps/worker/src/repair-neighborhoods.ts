@@ -1,3 +1,4 @@
+import { pathToFileURL } from "node:url";
 import { db } from "@micarnet/db";
 import {
   municipalities,
@@ -5,78 +6,189 @@ import {
   provinces,
 } from "@micarnet/db/schema/locations";
 import { schools } from "@micarnet/db/schema/schools";
+import booleanPointInPolygon from "@turf/boolean-point-in-polygon";
+import { point } from "@turf/helpers";
 import { eq, isNull, sql } from "drizzle-orm";
+import type { MultiPolygon, Polygon } from "geojson";
 import stringSimilarity from "string-similarity";
+import {
+  cleanMuniName,
+  getNameVariants,
+  isSmartMatch,
+  normalize,
+} from "./lib/normalization";
 
-const DIACRITICS_REGEX = /[\u0300-\u036f]/g;
-const INVERSION_REGEX = /^(.*)[\s,]+\(?(\w{1,3}|illes)\)?$/;
-const SPECIAL_CHARS_REGEX = /[()\-//]/g;
-const MULTI_SPACE_REGEX = /\s+/g;
-
-function normalize(text: string) {
-  if (!text) {
-    return "";
-  }
-  let normalized = text
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(DIACRITICS_REGEX, "");
-
-  // Handle inversions like "Coruña (A)", "Palmas, Las", "Balears (Illes)"
-  normalized = normalized.replace(INVERSION_REGEX, "$2 $1");
-
-  return normalized
-    .replace(SPECIAL_CHARS_REGEX, " ")
-    .replace(MULTI_SPACE_REGEX, " ")
-    .trim();
+type Province = typeof provinces.$inferSelect;
+type Municipality = typeof municipalities.$inferSelect;
+type SchoolRow = typeof schools.$inferSelect;
+interface MunicipalityVariant {
+  municipality: Municipality;
+  variant: string;
 }
 
-function cleanMuniName(name: string): string {
-  if (!name) {
-    return "";
+function findProvinceForSchool(
+  normalizedProv: string,
+  allProvinces: Province[]
+) {
+  if (!normalizedProv) {
+    return null;
   }
-  return name
-    .replace(/\( municipio sin especificar\)/gi, "")
-    .replace(/ municipio sin especificar/gi, "")
-    .trim();
+  return (
+    allProvinces.find((p) => {
+      const variants = getNameVariants(p.name);
+      return variants.some((variant) => isSmartMatch(normalizedProv, variant));
+    }) ?? null
+  );
 }
 
-function isSmartMatch(
-  normalizedSource: string,
-  normalizedTarget: string
-): boolean {
-  if (normalizedSource === normalizedTarget) {
+function buildMunicipalitiesByProvince(allMunicipalities: Municipality[]) {
+  const byProvince = new Map<number, Municipality[]>();
+  for (const municipality of allMunicipalities) {
+    const current = byProvince.get(municipality.provinceId);
+    if (current) {
+      current.push(municipality);
+    } else {
+      byProvince.set(municipality.provinceId, [municipality]);
+    }
+  }
+  return byProvince;
+}
+
+function buildMunicipalityVariants(allMunicipalities: Municipality[]) {
+  const variants: MunicipalityVariant[] = [];
+  for (const municipality of allMunicipalities) {
+    const nameVariants = getNameVariants(municipality.name);
+    for (const variant of nameVariants) {
+      variants.push({ municipality, variant });
+    }
+  }
+  return variants;
+}
+
+function findMunicipalityForSchool(
+  normalizedMuni: string,
+  provinceId: number,
+  municipalitiesByProvince: Map<number, Municipality[]>
+) {
+  if (!normalizedMuni) {
+    return null;
+  }
+  const provMunis = municipalitiesByProvince.get(provinceId);
+  if (!provMunis || provMunis.length === 0) {
+    return null;
+  }
+  return (
+    provMunis.find((m) => {
+      const variants = getNameVariants(m.name);
+      return variants.some((variant) => isSmartMatch(normalizedMuni, variant));
+    }) ?? null
+  );
+}
+
+function findMunicipalityFallback(
+  normalizedMuni: string,
+  municipalityVariants: MunicipalityVariant[],
+  municipalityVariantStrings: string[]
+) {
+  if (!normalizedMuni || municipalityVariants.length === 0) {
+    return null;
+  }
+  const matches = stringSimilarity.findBestMatch(
+    normalizedMuni,
+    municipalityVariantStrings
+  );
+  if (matches.bestMatch.rating > 0.6) {
+    return municipalityVariants[matches.bestMatchIndex]?.municipality ?? null;
+  }
+  return null;
+}
+
+function isOutsideMunicipality(school: SchoolRow, municipality: Municipality) {
+  if (school.dgtLatitude == null || school.dgtLongitude == null) {
+    return false;
+  }
+  if (!municipality.osmGeometry) {
+    return false;
+  }
+  try {
+    const geometry = municipality.osmGeometry as Polygon | MultiPolygon;
+    const inside = booleanPointInPolygon(
+      point([school.dgtLongitude, school.dgtLatitude]),
+      geometry
+    );
+    return !inside;
+  } catch (_error) {
     return true;
   }
+}
 
-  const sourceWords = normalizedSource.split(" ").filter((w) => w.length > 2);
-  const targetWords = normalizedTarget.split(" ").filter((w) => w.length > 2);
+interface RepairContext {
+  allProvinces: Province[];
+  municipalitiesByProvince: Map<number, Municipality[]>;
+  municipalityVariants: MunicipalityVariant[];
+  municipalityVariantStrings: string[];
+  placeholderByMunicipalityId: Map<number, number>;
+}
 
-  if (sourceWords.length === 0 || targetWords.length === 0) {
-    return (
-      stringSimilarity.compareTwoStrings(normalizedSource, normalizedTarget) >
-      0.7
+async function repairSingleSchool(s: SchoolRow, ctx: RepairContext) {
+  const normalizedMuni = normalize(cleanMuniName(s.dgtMunicipality || ""));
+  if (!normalizedMuni) {
+    return { status: "skipped_municipality" };
+  }
+
+  const normalizedProv = normalize(s.dgtProvince || "");
+  const province = findProvinceForSchool(normalizedProv, ctx.allProvinces);
+
+  let municipality =
+    province &&
+    findMunicipalityForSchool(
+      normalizedMuni,
+      province.id,
+      ctx.municipalitiesByProvince
+    );
+
+  if (!municipality) {
+    municipality = findMunicipalityFallback(
+      normalizedMuni,
+      ctx.municipalityVariants,
+      ctx.municipalityVariantStrings
     );
   }
 
-  const [shorter, longer] =
-    sourceWords.length < targetWords.length
-      ? [sourceWords, targetWords]
-      : [targetWords, sourceWords];
-
-  const allWordsMatch = shorter.every((sw) =>
-    longer.some((lw) => lw === sw || lw.includes(sw) || sw.includes(lw))
-  );
-  if (allWordsMatch) {
-    return true;
+  if (!municipality) {
+    return { status: province ? "skipped_municipality" : "skipped_province" };
   }
 
-  return (
-    stringSimilarity.compareTwoStrings(normalizedSource, normalizedTarget) > 0.6
-  );
+  const placeholderId = ctx.placeholderByMunicipalityId.get(municipality.id);
+  if (!placeholderId) {
+    return { status: "skipped_placeholder" };
+  }
+
+  const isOutside = isOutsideMunicipality(s, municipality);
+
+  await db
+    .update(schools)
+    .set({
+      neighborhoodId: placeholderId,
+      coordinateIssue: isOutside,
+    })
+    .where(eq(schools.id, s.id));
+
+  return {
+    status: "repaired",
+    isOutside,
+    isFallback:
+      !province ||
+      municipality !==
+        findMunicipalityForSchool(
+          normalizedMuni,
+          province.id,
+          ctx.municipalitiesByProvince
+        ),
+  };
 }
 
-async function repair() {
+export async function repairMissingNeighborhoods() {
   console.log("Starting database repair for missing neighborhoods...");
 
   const missingSchools = await db
@@ -88,76 +200,87 @@ async function repair() {
 
   const allProvinces = await db.select().from(provinces);
   const allMunicipalities = await db.select().from(municipalities);
+  const municipalitiesByProvince =
+    buildMunicipalitiesByProvince(allMunicipalities);
+  const municipalityVariants = buildMunicipalityVariants(allMunicipalities);
+  const municipalityVariantStrings = municipalityVariants.map(
+    (variant) => variant.variant
+  );
+  const placeholderNeighborhoods = await db
+    .select({
+      id: neighborhoods.id,
+      municipalityId: neighborhoods.municipalityId,
+      name: neighborhoods.name,
+    })
+    .from(neighborhoods)
+    .where(sql`${neighborhoods.name} LIKE ${"Resto de %"}`);
+
+  const placeholderByMunicipalityId = new Map<number, number>();
+  for (const placeholder of placeholderNeighborhoods) {
+    if (!placeholderByMunicipalityId.has(placeholder.municipalityId)) {
+      placeholderByMunicipalityId.set(
+        placeholder.municipalityId,
+        placeholder.id
+      );
+    }
+  }
+
+  const ctx: RepairContext = {
+    allProvinces,
+    municipalitiesByProvince,
+    municipalityVariants,
+    municipalityVariantStrings,
+    placeholderByMunicipalityId,
+  };
 
   let repairedCount = 0;
+  let skippedProvince = 0;
+  let skippedMunicipality = 0;
+  let skippedPlaceholder = 0;
+  let skippedOutsideGeometry = 0;
+  let fallbackMunicipalityMatches = 0;
 
   for (const s of missingSchools) {
-    const provName = s.dgtProvince || "";
-    const normalizedProv = normalize(provName);
+    const result = await repairSingleSchool(s, ctx);
 
-    // Find Province
-    const province = allProvinces.find((p) => {
-      const dbNormalized = normalize(p.name);
-      const dbVariants = dbNormalized.includes("/")
-        ? [dbNormalized, ...dbNormalized.split("/").map((v) => v.trim())]
-        : [dbNormalized];
-
-      return dbVariants.some((variant) =>
-        isSmartMatch(normalizedProv, variant)
-      );
-    });
-
-    if (!province) {
-      continue;
-    }
-
-    // Find Municipality
-    const cleanedMuni = cleanMuniName(s.dgtMunicipality || "");
-    const normalizedMuni = normalize(cleanedMuni);
-    const provMunis = allMunicipalities.filter(
-      (m) => m.provinceId === province.id
-    );
-
-    if (provMunis.length === 0) {
-      continue;
-    }
-
-    const municipality = provMunis.find((m) => {
-      const dbNormalized = normalize(m.name);
-      const dbVariants = dbNormalized.includes("/")
-        ? [dbNormalized, ...dbNormalized.split("/").map((v) => v.trim())]
-        : [dbNormalized];
-
-      return dbVariants.some((variant) =>
-        isSmartMatch(normalizedMuni, variant)
-      );
-    });
-
-    if (!municipality) {
-      continue;
-    }
-
-    // Find Placeholder Neighborhood
-    const placeholder = await db
-      .select({ id: neighborhoods.id })
-      .from(neighborhoods)
-      .where(
-        sql`${neighborhoods.municipalityId} = ${municipality.id} AND ${neighborhoods.name} LIKE ${"Resto de %"}`
-      )
-      .limit(1);
-
-    if (placeholder.length > 0) {
-      await db
-        .update(schools)
-        .set({ neighborhoodId: placeholder[0].id })
-        .where(eq(schools.id, s.id));
-      repairedCount++;
+    switch (result.status) {
+      case "repaired":
+        repairedCount++;
+        if (result.isOutside) {
+          skippedOutsideGeometry++;
+        }
+        if (result.isFallback) {
+          fallbackMunicipalityMatches++;
+        }
+        break;
+      case "skipped_province":
+        skippedProvince++;
+        break;
+      case "skipped_municipality":
+        skippedMunicipality++;
+        break;
+      case "skipped_placeholder":
+        skippedPlaceholder++;
+        break;
+      default:
+        break;
     }
   }
 
   console.log(
     `Repair complete. Assigned neighborhoods to ${repairedCount} schools.`
   );
+  console.log(`Fallback municipality matches: ${fallbackMunicipalityMatches}`);
+  console.log(
+    `Schools with coordinate issues (assigned via name matching): ${skippedOutsideGeometry}`
+  );
+  console.log("Skipped:", {
+    provinceNotFound: skippedProvince,
+    municipalityNotFound: skippedMunicipality,
+    placeholderMissing: skippedPlaceholder,
+  });
 }
 
-repair().catch(console.error);
+if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
+  repairMissingNeighborhoods().catch(console.error);
+}

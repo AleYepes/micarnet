@@ -4,13 +4,18 @@ import {
   neighborhoods,
   provinces,
 } from "@micarnet/db/schema/locations";
-import { examStats, schools } from "@micarnet/db/schema/schools";
+import {
+  examStats,
+  type examTypeEnum,
+  schools,
+} from "@micarnet/db/schema/schools";
 import AdmZip from "adm-zip";
 import axios from "axios";
 import { load } from "cheerio";
 import { eq, sql } from "drizzle-orm";
 import iconv from "iconv-lite";
 import stringSimilarity from "string-similarity";
+import { normalize } from "./lib/normalization";
 
 const DGT_EXAMS_URL =
   "https://www.dgt.es/menusecundario/dgt-en-cifras/matraba-listados/conductores-autoescuelas.html";
@@ -39,17 +44,6 @@ interface ExamRecord {
 interface ZipLink {
   url: string;
   text: string;
-}
-
-function normalize(text: string) {
-  if (!text) {
-    return "";
-  }
-  return text
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .trim();
 }
 
 async function fetchZipLinks(): Promise<ZipLink[]> {
@@ -84,7 +78,7 @@ function parseCsvContent(content: string): ExamRecord[] {
   // Identify header line index
   let headerIndex = -1;
   for (let i = 0; i < Math.min(lines.length, 10); i++) {
-    if (lines[i].includes("CODIGO_AUTOESCUELA")) {
+    if (lines[i]?.includes("CODIGO_AUTOESCUELA")) {
       headerIndex = i;
       break;
     }
@@ -95,11 +89,19 @@ function parseCsvContent(content: string): ExamRecord[] {
     return [];
   }
 
-  const header = lines[headerIndex].split(";").map((h) => h.trim());
+  const headerLine = lines[headerIndex];
+  if (!headerLine) {
+    return [];
+  }
+  const header = headerLine.split(";").map((h) => h.trim());
   const records: ExamRecord[] = [];
 
   for (let i = headerIndex + 1; i < lines.length; i++) {
-    const line = lines[i].trim();
+    const currentLine = lines[i];
+    if (!currentLine) {
+      continue;
+    }
+    const line = currentLine.trim();
     if (!line) {
       continue;
     }
@@ -111,7 +113,10 @@ function parseCsvContent(content: string): ExamRecord[] {
 
     const record: Record<string, string> = {};
     for (let j = 0; j < header.length; j++) {
-      record[header[j]] = values[j]?.trim() || "";
+      const headerKey = header[j];
+      if (headerKey) {
+        record[headerKey] = values[j]?.trim() || "";
+      }
     }
     records.push(record as unknown as ExamRecord);
   }
@@ -191,9 +196,11 @@ async function findProvinceId(name: string) {
   );
 
   if (matches.bestMatch.rating > 0.7) {
-    const provinceId = cachedProvinces[matches.bestMatchIndex].id;
-    provinceCache.set(normalized, provinceId);
-    return provinceId;
+    const provinceId = cachedProvinces[matches.bestMatchIndex]?.id;
+    if (provinceId !== undefined) {
+      provinceCache.set(normalized, provinceId);
+      return provinceId;
+    }
   }
   return null;
 }
@@ -223,9 +230,11 @@ async function findMunicipalityId(name: string, provinceId: number) {
   );
 
   if (matches.bestMatch.rating > 0.6) {
-    const muniId = provinceMunis[matches.bestMatchIndex].id;
-    municipalityCache.set(cacheKey, muniId);
-    return muniId;
+    const muniId = provinceMunis[matches.bestMatchIndex]?.id;
+    if (muniId !== undefined) {
+      municipalityCache.set(cacheKey, muniId);
+      return muniId;
+    }
   }
   return null;
 }
@@ -241,7 +250,7 @@ async function getPlaceholderNeighborhoodId(municipalityId: number) {
     .where(eq(municipalities.id, municipalityId))
     .limit(1);
 
-  if (muni.length === 0) {
+  if (muni.length === 0 || !muni[0]) {
     return null;
   }
 
@@ -253,7 +262,7 @@ async function getPlaceholderNeighborhoodId(municipalityId: number) {
     )
     .limit(1);
 
-  if (placeholder.length > 0) {
+  if (placeholder.length > 0 && placeholder[0]) {
     neighborhoodPlaceholderCache.set(municipalityId, placeholder[0].id);
     return placeholder[0].id;
   }
@@ -266,7 +275,7 @@ async function getNeighborhoodIdForRecord(r: ExamRecord) {
   if (provId) {
     const muniId = await findMunicipalityId(r.CENTRO_EXAMEN, provId);
     if (muniId) {
-      neighborhoodId = await getPlaceholderNeighborhoodId(muniId);
+      neighborhoodId = (await getPlaceholderNeighborhoodId(muniId)) ?? null;
     }
   }
   return neighborhoodId;
