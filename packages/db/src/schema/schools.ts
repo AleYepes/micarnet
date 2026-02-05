@@ -6,6 +6,7 @@ import {
   jsonb,
   pgEnum,
   pgTable,
+  primaryKey,
   serial,
   smallint,
   text,
@@ -180,26 +181,34 @@ export const messages = pgTable("messages", {
 
 // --- Legacy / Stats ---
 
-export const examStats = pgTable("exam_stats", {
-  schoolId: integer("school_id")
-    .notNull()
-    .references(() => schools.id),
-  year: smallint("year").notNull(),
-  month: smallint("month").notNull(),
-  examType: examTypeEnum("exam_type").notNull(),
-  licenseType: text("license_type").notNull(),
+export const examStats = pgTable(
+  "exam_stats",
+  {
+    schoolId: integer("school_id")
+      .notNull()
+      .references(() => schools.id),
+    year: smallint("year").notNull(),
+    month: smallint("month").notNull(),
+    examType: examTypeEnum("exam_type").notNull(),
+    licenseType: text("license_type").notNull(),
 
-  totalPassed: smallint("total_passed").notNull().default(0),
-  passedFirstAttempt: smallint("passed_first_attempt").notNull().default(0),
-  passedSecondAttempt: smallint("passed_second_attempt").notNull().default(0),
-  passedThirdOrFourthAttempt: smallint("passed_third_or_fourth_attempt")
-    .notNull()
-    .default(0),
-  passedFifthOrMoreAttempt: smallint("passed_fifth_or_more_attempt")
-    .notNull()
-    .default(0),
-  totalFailed: smallint("total_failed").notNull().default(0),
-});
+    totalPassed: smallint("total_passed").notNull().default(0),
+    passedFirstAttempt: smallint("passed_first_attempt").notNull().default(0),
+    passedSecondAttempt: smallint("passed_second_attempt").notNull().default(0),
+    passedThirdOrFourthAttempt: smallint("passed_third_or_fourth_attempt")
+      .notNull()
+      .default(0),
+    passedFifthOrMoreAttempt: smallint("passed_fifth_or_more_attempt")
+      .notNull()
+      .default(0),
+    totalFailed: smallint("total_failed").notNull().default(0),
+  },
+  (t) => ({
+    pk: primaryKey({
+      columns: [t.schoolId, t.year, t.month, t.examType, t.licenseType],
+    }),
+  })
+);
 
 // --- Relations ---
 

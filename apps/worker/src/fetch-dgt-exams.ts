@@ -383,7 +383,26 @@ async function processBatch(batch: ExamRecord[]) {
   }
 
   if (toInsert.length > 0) {
-    await db.insert(examStats).values(toInsert);
+    await db
+      .insert(examStats)
+      .values(toInsert)
+      .onConflictDoUpdate({
+        target: [
+          examStats.schoolId,
+          examStats.year,
+          examStats.month,
+          examStats.examType,
+          examStats.licenseType,
+        ],
+        set: {
+          totalPassed: sql`EXCLUDED.total_passed`,
+          passedFirstAttempt: sql`EXCLUDED.passed_first_attempt`,
+          passedSecondAttempt: sql`EXCLUDED.passed_second_attempt`,
+          passedThirdOrFourthAttempt: sql`EXCLUDED.passed_third_or_fourth_attempt`,
+          passedFifthOrMoreAttempt: sql`EXCLUDED.passed_fifth_or_more_attempt`,
+          totalFailed: sql`EXCLUDED.total_failed`,
+        },
+      });
   }
 }
 
