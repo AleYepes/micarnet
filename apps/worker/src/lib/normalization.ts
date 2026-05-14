@@ -1,9 +1,10 @@
 import stringSimilarity from "string-similarity";
 
 const DIACRITICS_REGEX = /[\u0300-\u036f]/g;
-const INVERSION_REGEX = /^(.*)[\s,]+\(?(\w{1,3}|illes)\)?$/;
+const INVERSION_REGEX = /^(.*?)[\s,]+\(?(\w{1,3}|illes)\)?$/;
 const SPECIAL_CHARS_REGEX = /[()\-//]/g;
 const MULTI_SPACE_REGEX = /\s+/g;
+const PARENTHETICAL_REGEX = /^(.*)\(([^)]+)\)(.*)$/;
 
 export function normalize(text: string) {
   if (!text || text.toUpperCase() === "N.D" || text.toUpperCase() === "N.D.") {
@@ -69,12 +70,36 @@ export function isSmartMatch(
 }
 
 export function getNameVariants(name: string): string[] {
-  const normalized = normalize(name);
-  if (!normalized) {
+  if (!name) {
     return [];
   }
-  if (!normalized.includes("/")) {
-    return [normalized];
+
+  const rawCandidates = new Set([name]);
+  for (const part of name.split("/")) {
+    rawCandidates.add(part);
   }
-  return [normalized, ...normalized.split("/").map((v) => v.trim())];
+
+  const parenthetical = name.match(PARENTHETICAL_REGEX);
+  if (parenthetical) {
+    const before = parenthetical[1] ?? "";
+    const inside = parenthetical[2] ?? "";
+    const after = parenthetical[3] ?? "";
+    const withoutParentheses = `${before} ${after}`.trim();
+    const parentheticalFirst = `${inside} ${before} ${after}`.trim();
+    const parentheticalLast = `${before} ${inside} ${after}`.trim();
+    rawCandidates.add(withoutParentheses);
+    rawCandidates.add(parentheticalFirst);
+    rawCandidates.add(parentheticalLast);
+    rawCandidates.add(inside);
+  }
+
+  const variants = new Set<string>();
+  for (const candidate of rawCandidates) {
+    const normalized = normalize(candidate);
+    if (normalized) {
+      variants.add(normalized);
+    }
+  }
+
+  return [...variants];
 }

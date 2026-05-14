@@ -3,7 +3,9 @@ import { drizzle } from "drizzle-orm/node-postgres";
 
 import { account, session, user, verification } from "./schema/auth";
 import {
+  comarcas,
   communities,
+  districts,
   municipalities,
   neighborhoods,
   provinces,
@@ -34,7 +36,9 @@ export const schema = {
   user,
   verification,
   // Locations
+  comarcas,
   communities,
+  districts,
   municipalities,
   neighborhoods,
   provinces,

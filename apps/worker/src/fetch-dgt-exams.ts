@@ -1,10 +1,5 @@
 import { db } from "@micarnet/db";
 import {
-  municipalities,
-  neighborhoods,
-  provinces,
-} from "@micarnet/db/schema/locations";
-import {
   examStats,
   type examTypeEnum,
   schools,
@@ -12,10 +7,9 @@ import {
 import AdmZip from "adm-zip";
 import axios from "axios";
 import { load } from "cheerio";
-import { eq, sql } from "drizzle-orm";
+import { sql } from "drizzle-orm";
 import iconv from "iconv-lite";
-import stringSimilarity from "string-similarity";
-import { normalize } from "./lib/normalization";
+import { findNeighborhoodByLocationNames } from "./lib/location-assignment";
 
 const DGT_EXAMS_URL =
   "https://www.dgt.es/menusecundario/dgt-en-cifras/matraba-listados/conductores-autoescuelas.html";
@@ -170,115 +164,11 @@ function fixSpacedName(name: string): string {
   return name;
 }
 
-// Caching for fuzzy matches
-const provinceCache = new Map<string, number>();
-const municipalityCache = new Map<string, number>();
-const neighborhoodPlaceholderCache = new Map<number, number>();
-
-let cachedProvinces: (typeof provinces.$inferSelect)[] | null = null;
-
-async function findProvinceId(name: string) {
-  const normalized = normalize(name);
-  if (!normalized) {
-    return null;
-  }
-  if (provinceCache.has(normalized)) {
-    return provinceCache.get(normalized);
-  }
-
-  if (!cachedProvinces) {
-    cachedProvinces = await db.select().from(provinces);
-  }
-
-  const matches = stringSimilarity.findBestMatch(
-    normalized,
-    cachedProvinces.map((p) => normalize(p.name))
-  );
-
-  if (matches.bestMatch.rating > 0.7) {
-    const provinceId = cachedProvinces[matches.bestMatchIndex]?.id;
-    if (provinceId !== undefined) {
-      provinceCache.set(normalized, provinceId);
-      return provinceId;
-    }
-  }
-  return null;
-}
-
-async function findMunicipalityId(name: string, provinceId: number) {
-  const normalized = normalize(name);
-  if (!normalized) {
-    return null;
-  }
-  const cacheKey = `${provinceId}:${normalized}`;
-  if (municipalityCache.has(cacheKey)) {
-    return municipalityCache.get(cacheKey);
-  }
-
-  const provinceMunis = await db
-    .select()
-    .from(municipalities)
-    .where(eq(municipalities.provinceId, provinceId));
-
-  if (provinceMunis.length === 0) {
-    return null;
-  }
-
-  const matches = stringSimilarity.findBestMatch(
-    normalized,
-    provinceMunis.map((m) => normalize(m.name))
-  );
-
-  if (matches.bestMatch.rating > 0.6) {
-    const muniId = provinceMunis[matches.bestMatchIndex]?.id;
-    if (muniId !== undefined) {
-      municipalityCache.set(cacheKey, muniId);
-      return muniId;
-    }
-  }
-  return null;
-}
-
-async function getPlaceholderNeighborhoodId(municipalityId: number) {
-  if (neighborhoodPlaceholderCache.has(municipalityId)) {
-    return neighborhoodPlaceholderCache.get(municipalityId);
-  }
-
-  const muni = await db
-    .select()
-    .from(municipalities)
-    .where(eq(municipalities.id, municipalityId))
-    .limit(1);
-
-  if (muni.length === 0 || !muni[0]) {
-    return null;
-  }
-
-  const placeholder = await db
-    .select({ id: neighborhoods.id })
-    .from(neighborhoods)
-    .where(
-      sql`${neighborhoods.municipalityId} = ${municipalityId} AND ${neighborhoods.name} = ${`Resto de ${muni[0].name}`}`
-    )
-    .limit(1);
-
-  if (placeholder.length > 0 && placeholder[0]) {
-    neighborhoodPlaceholderCache.set(municipalityId, placeholder[0].id);
-    return placeholder[0].id;
-  }
-  return null;
-}
-
 async function getNeighborhoodIdForRecord(r: ExamRecord) {
-  let neighborhoodId: number | null = null;
-  const provId = await findProvinceId(r.DESC_PROVINCIA);
-  if (provId) {
-    const muniId = await findMunicipalityId(r.CENTRO_EXAMEN, provId);
-    if (muniId) {
-      neighborhoodId = (await getPlaceholderNeighborhoodId(muniId)) ?? null;
-    }
-  }
-  return neighborhoodId;
+  return await findNeighborhoodByLocationNames(
+    r.DESC_PROVINCIA,
+    r.CENTRO_EXAMEN
+  );
 }
 
 async function ensureSchoolsExistAndGetMap(batch: ExamRecord[]) {

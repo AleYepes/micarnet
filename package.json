@@ -37,7 +37,7 @@
     "typescript": "catalog:",
     "ultracite": "7.0.5"
   },
-  "packageManager": "pnpm@10.14.0",
+  "packageManager": "pnpm@11.0.8",
   "lint-staged": {
     "*.{js,jsx,ts,tsx,json,jsonc,css,scss,md,mdx}": [
       "pnpm dlx ultracite fix"

@@ -1,22 +1,12 @@
 import { db } from "@micarnet/db";
-import {
-  municipalities,
-  neighborhoods,
-  provinces,
-} from "@micarnet/db/schema/locations";
+import { provinces } from "@micarnet/db/schema/locations";
 import { schools } from "@micarnet/db/schema/schools";
-import booleanPointInPolygon from "@turf/boolean-point-in-polygon";
-import { point } from "@turf/helpers";
 import axios from "axios";
-import { eq, sql } from "drizzle-orm";
-import type { MultiPolygon, Polygon } from "geojson";
-import stringSimilarity from "string-similarity";
 import {
-  cleanMuniName,
-  getNameVariants,
-  isSmartMatch,
-  normalize,
-} from "./lib/normalization";
+  findContainingNeighborhood,
+  findNeighborhoodByLocationNames,
+  getProvinceNeighborhoods,
+} from "./lib/location-assignment";
 
 const DGT_SCHOOLS_URL =
   "https://services3.arcgis.com/TXNiwnLDifb5lMaR/arcgis/rest/services/Autoescuela_pre/FeatureServer/0/query";
@@ -45,21 +35,6 @@ interface DgtFeature {
 
 interface DgtResponse {
   features: DgtFeature[];
-}
-
-interface NeighborhoodData {
-  id: number;
-  name: string;
-  municipalityId: number;
-  osmGeometry: unknown;
-  muniName: string;
-}
-
-interface MunicipalityData {
-  id: number;
-  name: string;
-  osmGeometry: unknown;
-  placeholderId: number | null;
 }
 
 /**
@@ -125,164 +100,6 @@ async function fetchDgtSchoolsForProvince(provinceIneCode: number) {
   }
 }
 
-async function getProvinceNeighborhoods(provinceId: number) {
-  const neighborhoodsData = await db
-    .select({
-      id: neighborhoods.id,
-      name: neighborhoods.name,
-      municipalityId: neighborhoods.municipalityId,
-      osmGeometry: neighborhoods.osmGeometry,
-      muniName: municipalities.name,
-    })
-    .from(neighborhoods)
-    .innerJoin(
-      municipalities,
-      eq(neighborhoods.municipalityId, municipalities.id)
-    )
-    .where(eq(municipalities.provinceId, provinceId));
-
-  return neighborhoodsData;
-}
-
-async function getProvinceMunicipalities(provinceId: number) {
-  const munis = await db
-    .select({
-      id: municipalities.id,
-      name: municipalities.name,
-      osmGeometry: municipalities.osmGeometry,
-    })
-    .from(municipalities)
-    .where(eq(municipalities.provinceId, provinceId));
-
-  const muniData: MunicipalityData[] = [];
-
-  for (const m of munis) {
-    const placeholder = await db
-      .select({ id: neighborhoods.id })
-      .from(neighborhoods)
-      .where(
-        sql`${neighborhoods.municipalityId} = ${m.id} AND ${neighborhoods.name} = ${`Resto de ${m.name}`}`
-      )
-      .limit(1);
-
-    muniData.push({
-      ...m,
-      placeholderId: placeholder[0]?.id || null,
-    });
-  }
-
-  return muniData;
-}
-
-function findSpecificNeighborhood(
-  attr: DgtSchoolAttributes,
-  provinceNeighborhoods: NeighborhoodData[]
-): number | null {
-  const lat = attr.latitud;
-  const lon = attr.longitud;
-  if (!(lat && lon)) {
-    return null;
-  }
-
-  const pt = point([lon, lat]);
-
-  for (const nb of provinceNeighborhoods) {
-    if (!nb.osmGeometry || nb.name.startsWith("Resto de ")) {
-      continue;
-    }
-    try {
-      const geometry = nb.osmGeometry as Polygon | MultiPolygon;
-      if (booleanPointInPolygon(pt, geometry)) {
-        const dgtMuni = attr.municipio || "";
-        const dbMuni = nb.muniName;
-        const similarity = stringSimilarity.compareTwoStrings(
-          normalize(dgtMuni),
-          normalize(dbMuni)
-        );
-        if (similarity > 0.6) {
-          return nb.id;
-        }
-      }
-    } catch (_e) {
-      // Ignore invalid geometries
-    }
-  }
-  return null;
-}
-
-function findMunicipalityPlaceholder(
-  attr: DgtSchoolAttributes,
-  provinceMunicipalities: MunicipalityData[]
-): number | null {
-  const lat = attr.latitud;
-  const lon = attr.longitud;
-  if (!(lat && lon)) {
-    return null;
-  }
-
-  const pt = point([lon, lat]);
-
-  for (const muni of provinceMunicipalities) {
-    if (!muni.osmGeometry) {
-      continue;
-    }
-    try {
-      const geometry = muni.osmGeometry as Polygon | MultiPolygon;
-      if (booleanPointInPolygon(pt, geometry)) {
-        return muni.placeholderId;
-      }
-    } catch (_e) {
-      // Ignore invalid geometries
-    }
-  }
-  return null;
-}
-
-function findMunicipalityByName(
-  attr: DgtSchoolAttributes,
-  provinceMunicipalities: MunicipalityData[]
-): number | null {
-  const normalizedDgtMuni = normalize(cleanMuniName(attr.municipio || ""));
-  if (!normalizedDgtMuni) {
-    return null;
-  }
-
-  // Exact match or smart match
-  const match = provinceMunicipalities.find((m) => {
-    const variants = getNameVariants(m.name);
-    return variants.some((variant) => isSmartMatch(normalizedDgtMuni, variant));
-  });
-
-  if (match) {
-    return match.placeholderId;
-  }
-
-  // Fuzzy match as final fallback
-  const muniVariantStrings = provinceMunicipalities.flatMap((m) =>
-    getNameVariants(m.name)
-  );
-  const matches = stringSimilarity.findBestMatch(
-    normalizedDgtMuni,
-    muniVariantStrings
-  );
-
-  if (matches.bestMatch.rating > 0.6) {
-    // We need to find the municipality again because we flattened variants
-
-    const bestVariant = muniVariantStrings[matches.bestMatchIndex];
-
-    if (bestVariant) {
-      const bestMatch = provinceMunicipalities.find((m) =>
-        getNameVariants(m.name).includes(bestVariant)
-      );
-
-      return bestMatch?.placeholderId || null;
-    }
-  }
-
-  return null;
-}
-
 async function upsertSchool(
   attr: DgtSchoolAttributes,
   neighborhoodId: number | null,
@@ -329,25 +146,25 @@ async function upsertSchool(
 
 async function processSchoolRecord(
   attr: DgtSchoolAttributes,
-  provinceNeighborhoods: NeighborhoodData[],
-  provinceMunicipalities: MunicipalityData[]
+  provinceNeighborhoods: Awaited<ReturnType<typeof getProvinceNeighborhoods>>
 ): Promise<DgtSchoolAttributes | null> {
   if (!attr.nombre) {
     return null;
   }
 
-  let neighborhoodId = findSpecificNeighborhood(attr, provinceNeighborhoods);
+  let neighborhoodId = findContainingNeighborhood(
+    attr.latitud,
+    attr.longitud,
+    provinceNeighborhoods
+  );
   let coordinateIssue = false;
 
   if (!neighborhoodId) {
-    neighborhoodId = findMunicipalityPlaceholder(attr, provinceMunicipalities);
-  }
-
-  if (!neighborhoodId) {
-    // Fallback to string matching
-    neighborhoodId = findMunicipalityByName(attr, provinceMunicipalities);
+    neighborhoodId = await findNeighborhoodByLocationNames(
+      attr.provincia,
+      attr.municipio
+    );
     if (neighborhoodId && attr.latitud && attr.longitud) {
-      // If we matched by name but not by coordinates, flag it
       coordinateIssue = true;
     }
   }
@@ -385,10 +202,8 @@ export async function syncDgtSchools() {
 
     // Load Neighborhoods
     const provinceNeighborhoods = await getProvinceNeighborhoods(province.id);
-    const provinceMunicipalities = await getProvinceMunicipalities(province.id);
-
     console.log(
-      `  Loaded ${provinceNeighborhoods.length} neighborhoods and ${provinceMunicipalities.length} municipalities for spatial checks.`
+      `  Loaded ${provinceNeighborhoods.length} neighborhoods for spatial checks.`
     );
 
     let unmatchedCount = 0;
@@ -396,8 +211,7 @@ export async function syncDgtSchools() {
     for (const feat of dgtFeatures) {
       const unmatched = await processSchoolRecord(
         feat.attributes,
-        provinceNeighborhoods,
-        provinceMunicipalities
+        provinceNeighborhoods
       );
       if (unmatched) {
         unmatchedCount++;

@@ -9,5 +9,10 @@
     }
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules"]
+  "exclude": [
+    "node_modules",
+    "src/audit-missing-neighborhoods.ts",
+    "src/fetch-osm-boundaries.ts",
+    "src/repair-neighborhoods.ts"
+  ]
 }

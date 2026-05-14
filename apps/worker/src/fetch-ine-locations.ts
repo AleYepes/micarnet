@@ -1,8 +1,8 @@
 import { db } from "@micarnet/db";
 import {
+  comarcas,
   communities,
   municipalities,
-  neighborhoods,
   provinces,
 } from "@micarnet/db/schema/locations";
 import axios from "axios";
@@ -116,7 +116,90 @@ export async function syncLocations() {
       });
   }
 
-  // 3. Municipalities (Variable 19)
+  // 3. Comarcas (Variable 953)
+  console.log("Fetching comarcas...");
+  const rawComarcas = await fetchIneVariable(953);
+  const comarcaIneIdToCode = new Map<number, string>(); // INE ID -> Codigo (string)
+
+  const comarcasToInsert = rawComarcas
+    .filter((c) => {
+      const isComarca = c.Codigo && c.Codigo.length === 4;
+      const hasProvince = c.FK_JerarquiaPadres?.some((id) =>
+        provinceIneIdToCode.has(id)
+      );
+      return isComarca && hasProvince;
+    })
+    .map((c) => {
+      const provinceIneId = c.FK_JerarquiaPadres?.find((id) =>
+        provinceIneIdToCode.has(id)
+      );
+      if (!provinceIneId) {
+        throw new Error(`Comarca ${c.Nombre} has no valid province parent`);
+      }
+      const provinceCodeStr = provinceIneIdToCode.get(provinceIneId);
+      if (!provinceCodeStr) {
+        throw new Error(`Province Code not found for INE ID ${provinceIneId}`);
+      }
+      const provinceId = Number.parseInt(provinceCodeStr, 10);
+      comarcaIneIdToCode.set(c.Id, c.Codigo);
+      return {
+        id: Number.parseInt(c.Codigo, 10),
+        name: c.Nombre.trim(),
+        provinceId,
+        ineId: c.Id,
+        ineFkVariable: c.FK_Variable,
+        ineFkJerarquiaPadres: c.FK_JerarquiaPadres,
+        isPlaceholder: false,
+        isDerived: false,
+        searchable: true,
+      };
+    });
+
+  console.log(`Syncing ${comarcasToInsert.length} comarcas...`);
+  for (const comarca of comarcasToInsert) {
+    await db
+      .insert(comarcas)
+      .values(comarca)
+      .onConflictDoUpdate({
+        target: comarcas.id,
+        set: {
+          name: comarca.name,
+          provinceId: comarca.provinceId,
+          ineId: comarca.ineId,
+          ineFkVariable: comarca.ineFkVariable,
+          ineFkJerarquiaPadres: comarca.ineFkJerarquiaPadres,
+          isPlaceholder: false,
+          isDerived: false,
+          searchable: true,
+        },
+      });
+  }
+
+  console.log("Creating placeholder comarcas for each province...");
+  for (const province of provincesToInsert) {
+    await db
+      .insert(comarcas)
+      .values({
+        id: -province.id,
+        name: province.name,
+        provinceId: province.id,
+        isPlaceholder: true,
+        isDerived: true,
+        searchable: false,
+      })
+      .onConflictDoUpdate({
+        target: comarcas.id,
+        set: {
+          name: province.name,
+          provinceId: province.id,
+          isPlaceholder: true,
+          isDerived: true,
+          searchable: false,
+        },
+      });
+  }
+
+  // 4. Municipalities (Variable 19)
   console.log("Fetching municipalities...");
   const rawMunicipalities = await fetchIneVariable(19);
 
@@ -145,10 +228,21 @@ export async function syncLocations() {
         throw new Error(`Province Code not found for INE ID ${provinceIneId}`);
       }
       const provinceId = Number.parseInt(provinceCodeStr, 10);
+      const comarcaIneId = m.FK_JerarquiaPadres?.find((id) =>
+        comarcaIneIdToCode.has(id)
+      );
+      const comarcaCodeStr = comarcaIneId
+        ? comarcaIneIdToCode.get(comarcaIneId)
+        : undefined;
+      const comarcaId = comarcaCodeStr
+        ? Number.parseInt(comarcaCodeStr, 10)
+        : -provinceId;
+
       return {
         id: Number.parseInt(m.Codigo, 10),
         name: m.Nombre.trim(),
         provinceId,
+        comarcaId,
         ineId: m.Id,
         ineFkVariable: m.FK_Variable,
         ineFkJerarquiaPadres: m.FK_JerarquiaPadres,
@@ -169,6 +263,7 @@ export async function syncLocations() {
             set: {
               name: m.name,
               provinceId: m.provinceId,
+              comarcaId: m.comarcaId,
               ineId: m.ineId,
               ineFkVariable: m.ineFkVariable,
               ineFkJerarquiaPadres: m.ineFkJerarquiaPadres,
@@ -178,27 +273,6 @@ export async function syncLocations() {
     );
     if (i % 1000 === 0) {
       console.log(`Processed ${i} municipalities...`);
-    }
-  }
-
-  // 4. Create placeholder neighborhoods for each municipality
-  console.log("Creating placeholder neighborhoods for each municipality...");
-  const allMunicipalities = await db.select().from(municipalities);
-  for (let i = 0; i < allMunicipalities.length; i += chunkSize) {
-    const chunk = allMunicipalities.slice(i, i + chunkSize);
-    await Promise.all(
-      chunk.map((m) =>
-        db
-          .insert(neighborhoods)
-          .values({
-            name: `Resto de ${m.name}`,
-            municipalityId: m.id,
-          })
-          .onConflictDoNothing()
-      )
-    );
-    if (i % 1000 === 0) {
-      console.log(`Processed ${i} placeholders...`);
     }
   }
 
