@@ -7,7 +7,7 @@ import {
 } from "@micarnet/db/schema/locations";
 import booleanPointInPolygon from "@turf/boolean-point-in-polygon";
 import { point } from "@turf/helpers";
-import { eq } from "drizzle-orm";
+import { and, eq, isNotNull } from "drizzle-orm";
 import type { MultiPolygon, Polygon } from "geojson";
 import stringSimilarity from "string-similarity";
 import {
@@ -29,26 +29,36 @@ const neighborhoodByMunicipalityCache = new Map<number, number | null>();
 
 interface NeighborhoodCandidate {
   id: number;
-  name: string;
+  name: string | null;
   geometry: unknown;
-  isDerived: boolean;
-  districtName: string;
+  districtName: string | null;
   municipalityId: number;
-  municipalityName: string;
+  municipalityName: string | null;
 }
 
-function findByNameVariants<T extends { name: string }>(
-  rawName: string,
-  rows: T[],
-  minFuzzyMatch: number
-) {
+function getLocationNameVariants(row: {
+  idealistaName?: string | null;
+  ineName?: string | null;
+}) {
+  return [
+    ...new Set(
+      [row.idealistaName, row.ineName].flatMap((name) =>
+        name ? getNameVariants(name) : []
+      )
+    ),
+  ];
+}
+
+function findByNameVariants<
+  T extends { idealistaName?: string | null; ineName?: string | null },
+>(rawName: string, rows: T[], minFuzzyMatch: number) {
   const normalized = normalize(cleanMuniName(rawName));
   if (!normalized) {
     return null;
   }
 
   const exact = rows.find((row) =>
-    getNameVariants(row.name).some((variant) =>
+    getLocationNameVariants(row).some((variant) =>
       isSmartMatch(normalized, variant)
     )
   );
@@ -57,7 +67,7 @@ function findByNameVariants<T extends { name: string }>(
   }
 
   const variants = rows.flatMap((row) =>
-    getNameVariants(row.name).map((variant) => ({ row, variant }))
+    getLocationNameVariants(row).map((variant) => ({ row, variant }))
   );
   if (variants.length === 0) {
     return null;
@@ -95,17 +105,14 @@ export async function getNeighborhoodForMunicipality(
   const rows = await db
     .select({
       id: neighborhoods.id,
-      isDerived: neighborhoods.isDerived,
-      districtIsDerived: districts.isDerived,
+      geometry: neighborhoods.idealistaGeometry,
     })
     .from(neighborhoods)
     .innerJoin(districts, eq(neighborhoods.districtId, districts.id))
     .where(eq(districts.municipalityId, municipalityId));
 
-  const concrete = rows.find(
-    (row) => !(row.isDerived || row.districtIsDerived)
-  );
-  const neighborhoodId = concrete?.id ?? rows[0]?.id ?? null;
+  const withGeometry = rows.find((row) => row.geometry);
+  const neighborhoodId = withGeometry?.id ?? rows[0]?.id ?? null;
   neighborhoodByMunicipalityCache.set(municipalityId, neighborhoodId);
   return neighborhoodId;
 }
@@ -124,7 +131,12 @@ async function getMunicipalitiesByProvince(provinceId: number) {
   const rows = await db
     .select()
     .from(municipalities)
-    .where(eq(municipalities.provinceId, provinceId));
+    .where(
+      and(
+        eq(municipalities.provinceId, provinceId),
+        isNotNull(municipalities.ineId)
+      )
+    );
   municipalitiesByProvinceCache.set(provinceId, rows);
   return rows;
 }
@@ -133,12 +145,11 @@ export async function getProvinceNeighborhoods(provinceId: number) {
   const rows = await db
     .select({
       id: neighborhoods.id,
-      name: neighborhoods.name,
-      geometry: neighborhoods.geometry,
-      isDerived: neighborhoods.isDerived,
-      districtName: districts.name,
+      name: neighborhoods.idealistaName,
+      geometry: neighborhoods.idealistaGeometry,
+      districtName: districts.idealistaName,
       municipalityId: municipalities.id,
-      municipalityName: municipalities.name,
+      municipalityName: municipalities.idealistaName,
     })
     .from(neighborhoods)
     .innerJoin(districts, eq(neighborhoods.districtId, districts.id))
@@ -158,14 +169,8 @@ export function findContainingNeighborhood(
   }
 
   const pt = point([longitude, latitude]);
-  const sortedCandidates = [...candidates].sort((left, right) => {
-    if (left.isDerived === right.isDerived) {
-      return 0;
-    }
-    return left.isDerived ? 1 : -1;
-  });
 
-  for (const candidate of sortedCandidates) {
+  for (const candidate of candidates) {
     if (!candidate.geometry) {
       continue;
     }
@@ -209,7 +214,7 @@ export async function getMunicipalityForNeighborhood(neighborhoodId: number) {
   const rows = await db
     .select({
       municipalityId: municipalities.id,
-      geometry: municipalities.geometry,
+      geometry: municipalities.idealistaGeometry,
     })
     .from(neighborhoods)
     .innerJoin(districts, eq(neighborhoods.districtId, districts.id))

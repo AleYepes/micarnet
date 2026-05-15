@@ -6,6 +6,7 @@ import {
   provinces,
 } from "@micarnet/db/schema/locations";
 import axios from "axios";
+import { and, eq, isNull } from "drizzle-orm";
 
 const INE_API_BASE = "https://servicios.ine.es/wstempus/js/ES/VALORES_VARIABLE";
 
@@ -15,6 +16,16 @@ interface IneVariableValue {
   Nombre: string;
   Codigo: string;
   FK_JerarquiaPadres?: number[];
+}
+
+function expectReturnedId(
+  row: { id: number } | undefined,
+  label: string
+): number {
+  if (!row) {
+    throw new Error(`Expected ${label} upsert to return an id`);
+  }
+  return row.id;
 }
 
 async function fetchIneVariable(
@@ -27,73 +38,72 @@ async function fetchIneVariable(
 }
 
 export async function syncLocations() {
-  // 1. Communities (Variable 70)
   console.log("Fetching communities...");
   const rawCommunities = await fetchIneVariable(70);
-  const communityIneIdToCode = new Map<number, string>(); // INE ID -> Codigo (string)
+  const communityIneIdToDbId = new Map<number, number>();
 
   const communitiesToInsert = rawCommunities
     .filter((c) => c.Codigo && c.Codigo.length === 2 && c.FK_JerarquiaPadres)
-    .map((c) => {
-      communityIneIdToCode.set(c.Id, c.Codigo);
-      return {
-        id: Number.parseInt(c.Codigo, 10),
-        name: c.Nombre,
-        ineId: c.Id,
-        ineFkVariable: c.FK_Variable,
-        ineFkJerarquiaPadres: c.FK_JerarquiaPadres,
-      };
-    });
+    .map((c) => ({
+      ineId: c.Id,
+      ineCode: c.Codigo,
+      ineName: c.Nombre,
+      ineFkVariable: c.FK_Variable,
+      ineFkJerarquiaPadres: c.FK_JerarquiaPadres,
+    }));
 
   console.log(`Syncing ${communitiesToInsert.length} communities...`);
   for (const community of communitiesToInsert) {
-    await db
+    const [row] = await db
       .insert(communities)
       .values(community)
       .onConflictDoUpdate({
-        target: communities.id,
+        target: communities.ineId,
         set: {
-          name: community.name,
-          ineId: community.ineId,
+          ineCode: community.ineCode,
+          ineName: community.ineName,
           ineFkVariable: community.ineFkVariable,
           ineFkJerarquiaPadres: community.ineFkJerarquiaPadres,
         },
-      });
+      })
+      .returning({ id: communities.id });
+    communityIneIdToDbId.set(
+      community.ineId,
+      expectReturnedId(row, "community")
+    );
   }
 
-  // 2. Provinces (Variable 20)
   console.log("Fetching provinces...");
   const rawProvinces = await fetchIneVariable(20);
-  const provinceIneIdToCode = new Map<number, string>(); // INE ID -> Codigo (string)
+  const provinceIneIdToDbId = new Map<number, number>();
+  const provinceDbIdToName = new Map<number, string>();
 
   const provincesToInsert = rawProvinces
     .filter((p) => {
       const isProvince = p.Codigo && p.Codigo.length === 2;
       const hasParent = p.FK_JerarquiaPadres?.some((id) =>
-        communityIneIdToCode.has(id)
+        communityIneIdToDbId.has(id)
       );
       return isProvince && hasParent;
     })
     .map((p) => {
       const communityIneId = p.FK_JerarquiaPadres?.find((id) =>
-        communityIneIdToCode.has(id)
+        communityIneIdToDbId.has(id)
       );
       if (!communityIneId) {
         throw new Error(`Province ${p.Nombre} has no valid community parent`);
       }
-      const communityCodeStr = communityIneIdToCode.get(communityIneId);
-      if (!communityCodeStr) {
+      const communityId = communityIneIdToDbId.get(communityIneId);
+      if (!communityId) {
         throw new Error(
-          `Community Code not found for INE ID ${communityIneId}`
+          `Community DB ID not found for INE ID ${communityIneId}`
         );
       }
-      const communityId = Number.parseInt(communityCodeStr, 10);
-      provinceIneIdToCode.set(p.Id, p.Codigo);
       return {
-        id: Number.parseInt(p.Codigo, 10),
-        name: p.Nombre,
         communityId,
         ineId: p.Id,
+        ineCode: p.Codigo,
+        ineName: p.Nombre,
         ineFkVariable: p.FK_Variable,
         ineFkJerarquiaPadres: p.FK_JerarquiaPadres,
       };
@@ -101,155 +111,164 @@ export async function syncLocations() {
 
   console.log(`Syncing ${provincesToInsert.length} provinces...`);
   for (const province of provincesToInsert) {
-    await db
+    const [row] = await db
       .insert(provinces)
       .values(province)
       .onConflictDoUpdate({
-        target: provinces.id,
+        target: provinces.ineId,
         set: {
-          name: province.name,
           communityId: province.communityId,
-          ineId: province.ineId,
+          ineCode: province.ineCode,
+          ineName: province.ineName,
           ineFkVariable: province.ineFkVariable,
           ineFkJerarquiaPadres: province.ineFkJerarquiaPadres,
         },
-      });
+      })
+      .returning({ id: provinces.id });
+    const provinceId = expectReturnedId(row, "province");
+    provinceIneIdToDbId.set(province.ineId, provinceId);
+    provinceDbIdToName.set(provinceId, province.ineName);
   }
 
-  // 3. Comarcas (Variable 953)
   console.log("Fetching comarcas...");
   const rawComarcas = await fetchIneVariable(953);
-  const comarcaIneIdToCode = new Map<number, string>(); // INE ID -> Codigo (string)
+  const comarcaIneIdToDbId = new Map<number, number>();
+  const fallbackComarcaByProvinceId = new Map<number, number>();
 
   const comarcasToInsert = rawComarcas
     .filter((c) => {
       const isComarca = c.Codigo && c.Codigo.length === 4;
       const hasProvince = c.FK_JerarquiaPadres?.some((id) =>
-        provinceIneIdToCode.has(id)
+        provinceIneIdToDbId.has(id)
       );
       return isComarca && hasProvince;
     })
     .map((c) => {
       const provinceIneId = c.FK_JerarquiaPadres?.find((id) =>
-        provinceIneIdToCode.has(id)
+        provinceIneIdToDbId.has(id)
       );
       if (!provinceIneId) {
         throw new Error(`Comarca ${c.Nombre} has no valid province parent`);
       }
-      const provinceCodeStr = provinceIneIdToCode.get(provinceIneId);
-      if (!provinceCodeStr) {
-        throw new Error(`Province Code not found for INE ID ${provinceIneId}`);
+      const provinceId = provinceIneIdToDbId.get(provinceIneId);
+      if (!provinceId) {
+        throw new Error(`Province DB ID not found for INE ID ${provinceIneId}`);
       }
-      const provinceId = Number.parseInt(provinceCodeStr, 10);
-      comarcaIneIdToCode.set(c.Id, c.Codigo);
       return {
-        id: Number.parseInt(c.Codigo, 10),
-        name: c.Nombre.trim(),
         provinceId,
         ineId: c.Id,
+        ineCode: c.Codigo,
+        ineName: c.Nombre.trim(),
         ineFkVariable: c.FK_Variable,
         ineFkJerarquiaPadres: c.FK_JerarquiaPadres,
-        isPlaceholder: false,
-        isDerived: false,
-        searchable: true,
       };
     });
 
   console.log(`Syncing ${comarcasToInsert.length} comarcas...`);
   for (const comarca of comarcasToInsert) {
-    await db
+    const [row] = await db
       .insert(comarcas)
       .values(comarca)
       .onConflictDoUpdate({
-        target: comarcas.id,
+        target: comarcas.ineId,
         set: {
-          name: comarca.name,
           provinceId: comarca.provinceId,
-          ineId: comarca.ineId,
+          ineCode: comarca.ineCode,
+          ineName: comarca.ineName,
           ineFkVariable: comarca.ineFkVariable,
           ineFkJerarquiaPadres: comarca.ineFkJerarquiaPadres,
-          isPlaceholder: false,
-          isDerived: false,
-          searchable: true,
         },
-      });
+      })
+      .returning({ id: comarcas.id });
+    comarcaIneIdToDbId.set(comarca.ineId, expectReturnedId(row, "comarca"));
   }
 
-  console.log("Creating placeholder comarcas for each province...");
-  for (const province of provincesToInsert) {
-    await db
+  async function getFallbackComarcaId(provinceId: number) {
+    const cached = fallbackComarcaByProvinceId.get(provinceId);
+    if (cached) {
+      return cached;
+    }
+
+    const ineName =
+      provinceDbIdToName.get(provinceId) ?? `Province ${provinceId}`;
+    const existing = await db
+      .select({ id: comarcas.id })
+      .from(comarcas)
+      .where(
+        and(
+          eq(comarcas.provinceId, provinceId),
+          eq(comarcas.ineName, ineName),
+          isNull(comarcas.ineId),
+          isNull(comarcas.idealistaShortUri)
+        )
+      )
+      .limit(1);
+    if (existing[0]) {
+      fallbackComarcaByProvinceId.set(provinceId, existing[0].id);
+      return existing[0].id;
+    }
+
+    const [row] = await db
       .insert(comarcas)
       .values({
-        id: -province.id,
-        name: province.name,
-        provinceId: province.id,
-        isPlaceholder: true,
-        isDerived: true,
-        searchable: false,
+        provinceId,
+        ineName,
       })
-      .onConflictDoUpdate({
-        target: comarcas.id,
-        set: {
-          name: province.name,
-          provinceId: province.id,
-          isPlaceholder: true,
-          isDerived: true,
-          searchable: false,
-        },
-      });
+      .returning({ id: comarcas.id });
+    const comarcaId = expectReturnedId(row, "fallback comarca");
+    fallbackComarcaByProvinceId.set(provinceId, comarcaId);
+    return comarcaId;
   }
 
-  // 4. Municipalities (Variable 19)
   console.log("Fetching municipalities...");
   const rawMunicipalities = await fetchIneVariable(19);
 
-  const municipalitiesToInsert = rawMunicipalities
-    .filter((m) => {
-      const isMunicipality = m.Codigo && m.Codigo.length === 5;
-      const notDeleted = !m.Nombre.startsWith(
-        "Población en municipios desaparecidos"
-      );
-      const hasProvince = m.FK_JerarquiaPadres?.some((id) =>
-        provinceIneIdToCode.has(id)
-      );
-      return isMunicipality && notDeleted && hasProvince;
-    })
-    .map((m) => {
-      const provinceIneId = m.FK_JerarquiaPadres?.find((id) =>
-        provinceIneIdToCode.has(id)
-      );
-      if (!provinceIneId) {
-        throw new Error(
-          `Municipality ${m.Nombre} has no valid province parent`
-        );
-      }
-      const provinceCodeStr = provinceIneIdToCode.get(provinceIneId);
-      if (!provinceCodeStr) {
-        throw new Error(`Province Code not found for INE ID ${provinceIneId}`);
-      }
-      const provinceId = Number.parseInt(provinceCodeStr, 10);
-      const comarcaIneId = m.FK_JerarquiaPadres?.find((id) =>
-        comarcaIneIdToCode.has(id)
-      );
-      const comarcaCodeStr = comarcaIneId
-        ? comarcaIneIdToCode.get(comarcaIneId)
-        : undefined;
-      const comarcaId = comarcaCodeStr
-        ? Number.parseInt(comarcaCodeStr, 10)
-        : -provinceId;
+  const rawMunicipalitiesToInsert = rawMunicipalities.filter((m) => {
+    const isMunicipality = m.Codigo && m.Codigo.length === 5;
+    const notDeleted = !m.Nombre.startsWith(
+      "Población en municipios desaparecidos"
+    );
+    const hasProvince = m.FK_JerarquiaPadres?.some((id) =>
+      provinceIneIdToDbId.has(id)
+    );
+    return isMunicipality && notDeleted && hasProvince;
+  });
 
-      return {
-        id: Number.parseInt(m.Codigo, 10),
-        name: m.Nombre.trim(),
-        provinceId,
-        comarcaId,
-        ineId: m.Id,
-        ineFkVariable: m.FK_Variable,
-        ineFkJerarquiaPadres: m.FK_JerarquiaPadres,
-      };
+  console.log(`Syncing ${rawMunicipalitiesToInsert.length} municipalities...`);
+  const municipalitiesToInsert: (typeof municipalities.$inferInsert)[] = [];
+  for (const m of rawMunicipalitiesToInsert) {
+    const provinceIneId = m.FK_JerarquiaPadres?.find((id) =>
+      provinceIneIdToDbId.has(id)
+    );
+    if (!provinceIneId) {
+      throw new Error(`Municipality ${m.Nombre} has no valid province parent`);
+    }
+    const provinceId = provinceIneIdToDbId.get(provinceIneId);
+    if (!provinceId) {
+      throw new Error(`Province DB ID not found for INE ID ${provinceIneId}`);
+    }
+    const comarcaIneId = m.FK_JerarquiaPadres?.find((id) =>
+      comarcaIneIdToDbId.has(id)
+    );
+    const comarcaId = comarcaIneId
+      ? comarcaIneIdToDbId.get(comarcaIneId)
+      : await getFallbackComarcaId(provinceId);
+
+    if (!comarcaId) {
+      throw new Error(`Comarca DB ID not found for ${m.Nombre}`);
+    }
+
+    municipalitiesToInsert.push({
+      provinceId,
+      comarcaId,
+      ineId: m.Id,
+      ineCode: m.Codigo,
+      ineName: m.Nombre.trim(),
+      ineFkVariable: m.FK_Variable,
+      ineFkJerarquiaPadres: m.FK_JerarquiaPadres,
     });
+  }
 
-  console.log(`Syncing ${municipalitiesToInsert.length} municipalities...`);
   const chunkSize = 100;
   for (let i = 0; i < municipalitiesToInsert.length; i += chunkSize) {
     const chunk = municipalitiesToInsert.slice(i, i + chunkSize);
@@ -259,12 +278,12 @@ export async function syncLocations() {
           .insert(municipalities)
           .values(m)
           .onConflictDoUpdate({
-            target: municipalities.id,
+            target: municipalities.ineId,
             set: {
-              name: m.name,
               provinceId: m.provinceId,
               comarcaId: m.comarcaId,
-              ineId: m.ineId,
+              ineCode: m.ineCode,
+              ineName: m.ineName,
               ineFkVariable: m.ineFkVariable,
               ineFkJerarquiaPadres: m.ineFkJerarquiaPadres,
             },

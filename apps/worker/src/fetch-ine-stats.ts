@@ -7,6 +7,7 @@ import {
   statsByMunicipality,
 } from "@micarnet/db/schema/stats";
 import axios from "axios";
+import { and, isNotNull } from "drizzle-orm";
 
 const INE_DATOS_TABLA_BASE =
   "https://servicios.ine.es/wstempus/js/ES/DATOS_TABLA";
@@ -206,7 +207,9 @@ async function syncCommunityStats(
     if (!(comm.ineId && comm.ineFkVariable)) {
       continue;
     }
-    console.log(`Processing Community: ${comm.name}...`);
+    console.log(
+      `Processing Community: ${comm.idealistaName ?? comm.ineName}...`
+    );
     await processCommunity(comm, bucketRows);
   }
 }
@@ -272,11 +275,21 @@ async function processCommunity(
 
 async function syncMunicipalityStats() {
   console.log("Syncing Municipality Stats...");
-  const muniRows = await db.select().from(municipalities);
+  const muniRows = await db
+    .select()
+    .from(municipalities)
+    .where(
+      and(
+        isNotNull(municipalities.ineId),
+        isNotNull(municipalities.ineFkVariable)
+      )
+    );
 
   const munisToProcess = muniRows;
 
-  console.log(`Found ${muniRows.length} municipalities. Processing all.`);
+  console.log(
+    `Found ${muniRows.length} INE municipalities with stats identifiers.`
+  );
 
   const chunkSize = 10;
   for (let i = 0; i < munisToProcess.length; i += chunkSize) {

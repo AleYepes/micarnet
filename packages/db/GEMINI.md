@@ -33,5 +33,5 @@ Contains the core application business logic (WIP)
 
 ## Formatting
 
-- Use snake case column names
-- Prefix column names according to their source when appropriate(dgt*\*, osm*_, ine\__, etc)
+- Use lower snake case column names
+- Prefix column names according to their source when appropriate(`dgt_`, `osm_`, `ine_`, `idealista_`, etc)

@@ -1,19 +1,24 @@
 # micarnet
 
-This project was created with [Better-T-Stack](https://github.com/AmanVarshney01/create-better-t-stack), a modern TypeScript stack that combines Next.js, Self, ORPC, and more.
+This project was created with Better-T-Stack, a modern TypeScript stack that combines Next.js, Self, ORPC, and more.
 
 ## Features
 
-- **TypeScript** - For type safety and improved developer experience
-- **Next.js** - Full-stack React framework
-- **TailwindCSS** - Utility-first CSS for rapid UI development
-- **shadcn/ui** - Reusable UI components
-- **oRPC** - End-to-end type-safe APIs with OpenAPI integration
-- **Drizzle** - TypeScript-first ORM
-- **PostgreSQL** - Database engine
-- **Authentication** - Better-Auth
-- **Ultracite** - Biome-based linter and formatter
-- **Turborepo** - Optimized monorepo build system
+- Web app: Fullstack Next v16+ with Typescript v5+
+- Styling: Tailwind CSS v4+ with shadch/ui components
+- Database: PostgreSQL with Drizzle ORM
+- Deployment: Coolify and Docker
+- APIs: oRPC for end-to-end type-safety with OpenAPI integration
+- Runtime env & Package manager: pnpm
+- Build system: Turborepo v2.5+
+- Payments: Stripe
+- Authentication: Better-Auth v1.3+
+- Linting and formatting: Biome with Ultracite presets
+- Captcha: Vercel BotID
+- Autofill: Meilisearch
+- Unit testing: Jest
+- Component testing: React testing library
+- End-to-end testing: Playwright
 
 ## Getting Started
 
@@ -54,12 +59,14 @@ Open [http://localhost:3001](http://localhost:3001) in your browser to see your 
 
 ```bash
 micarnet/
-├── apps/
-│   └── web/         # Fullstack application (Next.js)
-├── packages/
+├── apps/            # Deployable entry points
+│   ├── web/         # Fullstack application (Next.js)
+│   └── ...
+├── packages/        # Shared, cross-cutting modules
 │   ├── api/         # API layer / business logic
 │   ├── auth/        # Authentication configuration & logic
-│   └── db/          # Database schema & queries
+│   ├── db/          # Database schema & queries
+│   └── ...
 ```
 
 ## Available Scripts

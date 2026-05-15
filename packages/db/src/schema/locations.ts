@@ -1,6 +1,5 @@
 import { relations } from "drizzle-orm";
 import {
-  boolean,
   index,
   integer,
   jsonb,
@@ -12,84 +11,99 @@ import {
 
 export const geoSchema = pgSchema("geo");
 
-export const communities = geoSchema.table("communities", {
-  id: integer("id").primaryKey(), // INE code converted to int (e.g., "01" -> 1)
-  name: text("name").notNull(),
-  ineId: integer("ine_id").unique(), // Internal INE ID
-  ineFkVariable: integer("ine_fk_variable"), // INE FK_Variable
-  ineFkJerarquiaPadres: integer("ine_fk_jerarquia_padres").array(),
-});
+export const communities = geoSchema.table(
+  "communities",
+  {
+    id: serial("id").primaryKey(),
+    ineId: integer("ine_id").unique(),
+    ineCode: text("ine_code"),
+    ineName: text("ine_name"),
+    ineFkVariable: integer("ine_fk_variable"),
+    ineFkJerarquiaPadres: integer("ine_fk_jerarquia_padres").array(),
+    idealistaShortUri: text("idealista_short_uri"),
+    idealistaName: text("idealista_name"),
+    idealistaGeometry: jsonb("idealista_geometry"),
+  },
+  (table) => ({
+    idealistaShortUriIdx: uniqueIndex("communities_idealista_short_uri_idx").on(
+      table.idealistaShortUri
+    ),
+    ineCodeIdx: index("communities_ine_code_idx").on(table.ineCode),
+  })
+);
 
 export const provinces = geoSchema.table(
   "provinces",
   {
-    id: integer("id").primaryKey(), // INE code converted to int (e.g., "28" -> 28)
-    name: text("name").notNull(),
+    id: serial("id").primaryKey(),
     communityId: integer("community_id")
       .notNull()
       .references(() => communities.id),
-    ineId: integer("ine_id").unique(), // Internal INE ID
-    ineFkVariable: integer("ine_fk_variable"), // INE FK_Variable
+    ineId: integer("ine_id").unique(),
+    ineCode: text("ine_code"),
+    ineName: text("ine_name"),
+    ineFkVariable: integer("ine_fk_variable"),
     ineFkJerarquiaPadres: integer("ine_fk_jerarquia_padres").array(),
     idealistaShortUri: text("idealista_short_uri"),
-    geometry: jsonb("geometry"),
-    isDerived: boolean("is_derived").default(false).notNull(),
-    searchable: boolean("searchable").default(true).notNull(),
+    idealistaName: text("idealista_name"),
+    idealistaGeometry: jsonb("idealista_geometry"),
   },
   (table) => ({
     idealistaShortUriIdx: uniqueIndex("provinces_idealista_short_uri_idx").on(
       table.idealistaShortUri
     ),
+    ineCodeIdx: index("provinces_ine_code_idx").on(table.ineCode),
   })
 );
 
 export const comarcas = geoSchema.table(
   "comarcas",
   {
-    id: integer("id").primaryKey(), // INE comarca code, or negative province id for placeholders
-    name: text("name").notNull(),
+    id: serial("id").primaryKey(),
     provinceId: integer("province_id")
       .notNull()
       .references(() => provinces.id),
-    ineId: integer("ine_id").unique(), // Internal INE ID
-    ineFkVariable: integer("ine_fk_variable"), // INE FK_Variable
+    ineId: integer("ine_id").unique(),
+    ineCode: text("ine_code"),
+    ineName: text("ine_name"),
+    ineFkVariable: integer("ine_fk_variable"),
     ineFkJerarquiaPadres: integer("ine_fk_jerarquia_padres").array(),
     idealistaShortUri: text("idealista_short_uri"),
-    geometry: jsonb("geometry"),
-    isDerived: boolean("is_derived").default(false).notNull(),
-    isPlaceholder: boolean("is_placeholder").default(false).notNull(),
-    searchable: boolean("searchable").default(true).notNull(),
+    idealistaName: text("idealista_name"),
+    idealistaGeometry: jsonb("idealista_geometry"),
   },
   (table) => ({
     idealistaShortUriIdx: uniqueIndex("comarcas_idealista_short_uri_idx").on(
       table.idealistaShortUri
     ),
+    ineCodeIdx: index("comarcas_ine_code_idx").on(table.ineCode),
   })
 );
 
 export const municipalities = geoSchema.table(
   "municipalities",
   {
-    id: integer("id").primaryKey(), // 5-digit INE code converted to int (e.g., "28079" -> 28079)
-    name: text("name").notNull(),
+    id: serial("id").primaryKey(),
     provinceId: integer("province_id")
       .notNull()
       .references(() => provinces.id),
     comarcaId: integer("comarca_id")
       .notNull()
       .references(() => comarcas.id),
-    ineId: integer("ine_id").unique(), // Internal INE ID
-    ineFkVariable: integer("ine_fk_variable"), // INE FK_Variable
+    ineId: integer("ine_id").unique(),
+    ineCode: text("ine_code"),
+    ineName: text("ine_name"),
+    ineFkVariable: integer("ine_fk_variable"),
     ineFkJerarquiaPadres: integer("ine_fk_jerarquia_padres").array(),
     idealistaShortUri: text("idealista_short_uri"),
-    geometry: jsonb("geometry"),
-    isDerived: boolean("is_derived").default(false).notNull(),
-    searchable: boolean("searchable").default(true).notNull(),
+    idealistaName: text("idealista_name"),
+    idealistaGeometry: jsonb("idealista_geometry"),
   },
   (table) => ({
     idealistaShortUriIdx: uniqueIndex(
       "municipalities_idealista_short_uri_idx"
     ).on(table.idealistaShortUri),
+    ineCodeIdx: index("municipalities_ine_code_idx").on(table.ineCode),
   })
 );
 
@@ -97,21 +111,19 @@ export const districts = geoSchema.table(
   "districts",
   {
     id: serial("id").primaryKey(),
-    name: text("name").notNull(),
     municipalityId: integer("municipality_id")
       .notNull()
       .references(() => municipalities.id),
     idealistaShortUri: text("idealista_short_uri"),
-    geometry: jsonb("geometry"),
-    isDerived: boolean("is_derived").default(false).notNull(),
-    searchable: boolean("searchable").default(true).notNull(),
+    idealistaName: text("idealista_name"),
+    idealistaGeometry: jsonb("idealista_geometry"),
   },
   (table) => ({
     idealistaShortUriIdx: uniqueIndex("districts_idealista_short_uri_idx").on(
       table.idealistaShortUri
     ),
     nameMunicipalityIdx: index("district_name_municipality_idx").on(
-      table.name,
+      table.idealistaName,
       table.municipalityId
     ),
   })
@@ -121,21 +133,19 @@ export const neighborhoods = geoSchema.table(
   "neighborhoods",
   {
     id: serial("id").primaryKey(),
-    name: text("name").notNull(),
     districtId: integer("district_id")
       .notNull()
       .references(() => districts.id),
     idealistaShortUri: text("idealista_short_uri"),
-    geometry: jsonb("geometry"),
-    isDerived: boolean("is_derived").default(false).notNull(),
-    searchable: boolean("searchable").default(true).notNull(),
+    idealistaName: text("idealista_name"),
+    idealistaGeometry: jsonb("idealista_geometry"),
   },
   (table) => ({
     idealistaShortUriIdx: uniqueIndex(
       "neighborhoods_idealista_short_uri_idx"
     ).on(table.idealistaShortUri),
     nameDistrictIdx: index("neighborhood_name_district_idx").on(
-      table.name,
+      table.idealistaName,
       table.districtId
     ),
   })

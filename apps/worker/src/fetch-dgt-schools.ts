@@ -2,6 +2,7 @@ import { db } from "@micarnet/db";
 import { provinces } from "@micarnet/db/schema/locations";
 import { schools } from "@micarnet/db/schema/schools";
 import axios from "axios";
+import { isNotNull } from "drizzle-orm";
 import {
   findContainingNeighborhood,
   findNeighborhoodByLocationNames,
@@ -184,18 +185,26 @@ export async function syncDgtSchools() {
   const allProvinces = await db
     .select({
       id: provinces.id,
-      name: provinces.name,
+      ineCode: provinces.ineCode,
+      ineName: provinces.ineName,
+      idealistaName: provinces.idealistaName,
     })
-    .from(provinces);
+    .from(provinces)
+    .where(isNotNull(provinces.ineCode));
 
   console.log(`Found ${allProvinces.length} provinces.`);
 
   for (const province of allProvinces) {
-    console.log(`Processing province: ${province.name} (${province.id})...`);
+    const provinceName =
+      province.idealistaName ?? province.ineName ?? province.ineCode;
+    const provinceIneCode = Number(province.ineCode);
+    console.log(
+      `Processing province: ${provinceName} (${province.ineCode})...`
+    );
 
-    const dgtFeatures = await fetchDgtSchoolsForProvince(province.id);
+    const dgtFeatures = await fetchDgtSchoolsForProvince(provinceIneCode);
     if (dgtFeatures.length === 0) {
-      console.log(`No schools found for ${province.name}.`);
+      console.log(`No schools found for ${provinceName}.`);
       continue;
     }
     console.log(`  Fetched ${dgtFeatures.length} schools.`);
