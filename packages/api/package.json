@@ -11,21 +11,20 @@
   },
   "scripts": {},
   "dependencies": {
-    "@orpc/server": "catalog:",
+    "@micarnet/auth": "workspace:*",
+    "@micarnet/db": "workspace:*",
+    "@micarnet/env": "workspace:*",
     "@orpc/client": "catalog:",
     "@orpc/openapi": "catalog:",
+    "@orpc/server": "catalog:",
     "@orpc/zod": "catalog:",
-    "next": "catalog:",
-    "drizzle-orm": "catalog:",
-    "@types/pg": "catalog:",
     "dotenv": "catalog:",
-    "zod": "catalog:",
-    "@micarnet/env": "workspace:*",
-    "@micarnet/auth": "workspace:*",
-    "@micarnet/db": "workspace:*"
+    "next": "catalog:",
+    "zod": "catalog:"
   },
   "devDependencies": {
+    "@micarnet/config": "workspace:*",
     "typescript": "catalog:",
-    "@micarnet/config": "workspace:*"
+    "vitest": "catalog:"
   }
 }

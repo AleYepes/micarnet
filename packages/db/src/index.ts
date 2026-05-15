@@ -1,63 +1,34 @@
+import { createClient } from "@libsql/client";
 import { env } from "@micarnet/env/server";
-import { drizzle } from "drizzle-orm/node-postgres";
+import { drizzle } from "drizzle-orm/libsql";
 
-import { account, session, user, verification } from "./schema/auth";
 import {
-  comarcas,
-  communities,
-  districts,
-  municipalities,
-  neighborhoods,
-  provinces,
-} from "./schema/locations";
-import {
-  classes,
-  conversations,
-  examStats,
-  examTypeEnum,
-  googlePlacesResponses,
-  instructors,
-  messages,
-  packages,
-  schools,
-  students,
-} from "./schema/schools";
-import {
-  buckets,
-  metadata,
-  statsByCommunity,
-  statsByMunicipality,
-} from "./schema/stats";
-
-export const schema = {
-  // Auth
   account,
+  accountRelations,
   session,
+  sessionRelations,
   user,
+  userRelations,
   verification,
-  // Locations
-  comarcas,
-  communities,
-  districts,
-  municipalities,
-  neighborhoods,
-  provinces,
-  // Schools
-  classes,
-  conversations,
-  examStats,
-  examTypeEnum,
-  googlePlacesResponses,
-  instructors,
-  messages,
-  packages,
-  schools,
-  students,
-  // Stats
-  buckets,
-  metadata,
-  statsByCommunity,
-  statsByMunicipality,
-};
+} from "./schema/auth.ts";
 
-export const db = drizzle(env.DATABASE_URL, { schema });
+export function createDb() {
+  const client = createClient({
+    url: env.DATABASE_URL,
+  });
+
+  return drizzle({
+    client,
+    schema: {
+      account,
+      accountRelations,
+      session,
+      sessionRelations,
+      user,
+      userRelations,
+      verification,
+    },
+  });
+}
+
+export const db = createDb();

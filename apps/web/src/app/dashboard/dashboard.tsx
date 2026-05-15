@@ -5,16 +5,11 @@ import type { authClient } from "@/lib/auth-client";
 import { orpc } from "@/utils/orpc";
 
 export default function Dashboard({
-  session,
+	session: _session,
 }: {
-  session: typeof authClient.$Infer.Session;
+	session: typeof authClient.$Infer.Session;
 }) {
-  const privateData = useQuery(orpc.privateData.queryOptions());
+	const privateData = useQuery(orpc.privateData.queryOptions());
 
-  return (
-    <div>
-      <p>Logged in as: {session.user.email}</p>
-      <p>API: {privateData.data?.message}</p>
-    </div>
-  );
+	return <p>API: {privateData.data?.message}</p>;
 }

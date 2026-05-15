@@ -1,9 +1,41 @@
 {
   "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
-  "extends": [
-    "ultracite/biome/core",
-    "ultracite/biome/react",
-    "ultracite/biome/next",
-    "ultracite/biome/remix"
+  "root": true,
+  "extends": ["ultracite/biome/core", "ultracite/biome/type-aware"],
+  "linter": {
+    "rules": {
+      "correctness": {
+        "useImportExtensions": "off"
+      }
+    }
+  },
+  "css": {
+    "parser": {
+      "cssModules": true,
+      "tailwindDirectives": true
+    }
+  },
+  "overrides": [
+    {
+      "includes": [
+        "**/*.test.ts",
+        "**/*.test.tsx",
+        "**/*.spec.ts",
+        "**/*.spec.tsx"
+      ],
+      "linter": {
+        "rules": {
+          "complexity": { "noExcessiveNestedTestSuites": "error" },
+          "style": { "noDoneCallback": "error" },
+          "suspicious": {
+            "noDuplicateTestHooks": "error",
+            "noExportsInTest": "error",
+            "noFocusedTests": "error",
+            "noMisplacedAssertion": "error",
+            "noSkippedTests": "error"
+          }
+        }
+      }
+    }
   ]
 }

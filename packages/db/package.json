@@ -13,24 +13,19 @@
     "db:push": "drizzle-kit push",
     "db:generate": "drizzle-kit generate",
     "db:studio": "drizzle-kit studio",
-    "db:migrate": "drizzle-kit migrate",
-    "db:start": "docker compose up -d",
-    "db:watch": "docker compose up",
-    "db:stop": "docker compose stop",
-    "db:down": "docker compose down"
+    "db:migrate": "drizzle-kit migrate"
+  },
+  "dependencies": {
+    "@libsql/client": "catalog:",
+    "@micarnet/env": "workspace:*",
+    "dotenv": "catalog:",
+    "drizzle-orm": "^0.45.1",
+    "libsql": "catalog:",
+    "zod": "catalog:"
   },
   "devDependencies": {
     "@micarnet/config": "workspace:*",
-    "@types/pg": "catalog:",
     "drizzle-kit": "^0.31.8",
-    "tsx": "^4.21.0",
     "typescript": "catalog:"
-  },
-  "dependencies": {
-    "@micarnet/env": "workspace:*",
-    "dotenv": "catalog:",
-    "drizzle-orm": "catalog:",
-    "pg": "^8.16.3",
-    "zod": "catalog:"
   }
 }

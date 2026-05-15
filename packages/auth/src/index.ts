@@ -1,24 +1,43 @@
-import { db } from "@micarnet/db";
-import { account, session, user, verification } from "@micarnet/db/schema/auth";
+import { createDb } from "@micarnet/db";
+import {
+  account,
+  accountRelations,
+  session,
+  sessionRelations,
+  user,
+  userRelations,
+  verification,
+} from "@micarnet/db/schema/auth";
 import { env } from "@micarnet/env/server";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { nextCookies } from "better-auth/next-js";
 
-export const auth = betterAuth({
-  database: drizzleAdapter(db, {
-    provider: "pg",
+export function createAuth() {
+  const db = createDb();
 
-    schema: {
-      account,
-      session,
-      user,
-      verification,
+  return betterAuth({
+    database: drizzleAdapter(db, {
+      provider: "sqlite",
+
+      schema: {
+        account,
+        accountRelations,
+        session,
+        sessionRelations,
+        user,
+        userRelations,
+        verification,
+      },
+    }),
+    trustedOrigins: [env.CORS_ORIGIN],
+    emailAndPassword: {
+      enabled: true,
     },
-  }),
-  trustedOrigins: [env.CORS_ORIGIN],
-  emailAndPassword: {
-    enabled: true,
-  },
-  plugins: [nextCookies()],
-});
+    secret: env.BETTER_AUTH_SECRET,
+    baseURL: env.BETTER_AUTH_URL,
+    plugins: [nextCookies()],
+  });
+}
+
+export const auth = createAuth();

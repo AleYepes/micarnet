@@ -10,15 +10,15 @@
     }
   },
   "scripts": {},
-  "devDependencies": {
-    "typescript": "catalog:",
-    "@micarnet/config": "workspace:*"
-  },
   "dependencies": {
+    "@micarnet/db": "workspace:*",
+    "@micarnet/env": "workspace:*",
     "better-auth": "catalog:",
     "dotenv": "catalog:",
-    "zod": "catalog:",
-    "@micarnet/env": "workspace:*",
-    "@micarnet/db": "workspace:*"
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@micarnet/config": "workspace:*",
+    "typescript": "catalog:"
   }
 }

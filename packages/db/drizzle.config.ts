@@ -1,16 +1,15 @@
-import dotenv from "dotenv";
+import { config } from "dotenv";
 import { defineConfig } from "drizzle-kit";
 
-dotenv.config({
+config({
   path: "../../apps/web/.env",
 });
 
 export default defineConfig({
   schema: "./src/schema",
   out: "./src/migrations",
-  dialect: "postgresql",
+  dialect: "turso",
   dbCredentials: {
     url: process.env.DATABASE_URL || "",
   },
-  schemaFilter: ["public", "auth", "geo", "stats"], // Will need to pudate this as schemas change
 });
