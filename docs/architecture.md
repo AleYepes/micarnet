@@ -14,7 +14,7 @@ name
 school ratings
 school reviews
 
-## practical
+## practical exam
 
 exams
 prices
@@ -26,24 +26,7 @@ class duration
   teacher rating
   teacher reviews? (nlp from school reviews)
 
-## theoretical
+## theoretical exam
 
 price
 online or not
-
-# Interview
-
-Many autoescuela owners are old-school
-
-- use pen and paper, whatsapp, and little tech to run their businesses
-
-facilauto (competitor app )
-
-- not great UX
-
-Package lock-in for students
-
-2 types of students
-
-- those that stay close
-- those that go to small provinces

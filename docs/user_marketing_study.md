@@ -1,3 +1,41 @@
+## Interview insights
+
+### Students
+
+#### School criteria
+
+People choose driving schools by:
+- distance **
+- price *****
+- referrals **
+- convenience *
+
+Some investigate the school online, but find little data appart from price. They do not distinguish between the two
+One investigated the schools in person if they were on the way to ask the people inside 
+Many picked schools because of referrals
+Some picked a school because a "mutua" their parents were subscribed to which awarded them with discounts
+
+#### By actions
+
+2 types of students
+
+- those that stay close
+- those that go to small provinces
+
+#### MISC
+
+Students feel locked-in to a school by the package format
+
+
+### Autoescuelas
+
+Many autoescuela owners are old-school
+- use pen and paper, whatsapp, and little tech to run their businesses
+
+facilauto (competitor app)
+
+
+
 ## Doing Top-level Marketing
 
 Creating a pipeline that draws in and eventually converts users is all about creativity, and AI struggles with this.

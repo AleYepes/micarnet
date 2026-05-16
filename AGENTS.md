@@ -9,27 +9,13 @@ MiCarnet is a two-sided marketplace for Spanish driving schools ("autoescuelas")
 
 ### Monorepo Rules
 
-- Deployable applications belong in `apps/`.
-- Shared logic, schemas, configs, and utilities belong in `packages/`.
-- Apps may consume packages, but packages must never import from `apps/`.
-- Define all Drizzle database schemas and types in `packages/db` to maintain a single source of truth.
+- Deployable entry points belong in `apps/`.
+- Shared logic, configs, and utilities belong in `packages/`.
+- Packages must never import from `apps/`.
+- Define all Drizzle schemas and schema-inferred types in `packages/db`.
+- Packages should be framework-independent by default.
 
-### Typescript Conventions
+### Coding Conventions
 
-- Prioritize clarity, explicit intent, and brevity over clever abstractions.
-- Write self-documenting code by using descriptive names for functions, variables, and types.
-- Only add comments for non-obvious logic or context that connot be inferred from the code.
-- Use `unknown` instead of `any` if a type is truly unknown.
-- Prefer type narrowing over type assertions. Use `as const` for immutable values and literal types.
-
-### Error Handling
-
-- Throw descriptive `Error` objects.
-- Prefer early returns over deeply nested conditionals for error/guard cases.
-
-### Skills
-
-- Consult a skill when one exists for an area you're working in. For example:
-  - Use the /vercel-react-best-practices and /next-best-practices skills when working in `apps/web/`
-  - Use the /better-auth-best-practices skill when working in `packages/auth/`
-  - Use the /shadcn skill when working on components in `packages/ui/`
+- Use type narrowing or `as const`. Avoid `as Type` assertions.
+- Never throw plain strings. Always include context (IDs, states, etc) in Error objects.
