@@ -7,15 +7,19 @@
     "start": "node dist/index.js"
   },
   "dependencies": {
+    "@libsql/client": "catalog:",
     "@micarnet/db": "workspace:*",
     "@micarnet/env": "workspace:*",
-    "tsup": "^8.4.0"
+    "drizzle-orm": "^0.45.1",
+    "tsup": "^8.4.0",
+    "zod": "catalog:"
   },
   "devDependencies": {
     "@micarnet/config": "workspace:*",
     "@types/geojson": "^7946.0.16",
     "@types/node": "^22.13.14",
     "tsx": "^4.19.3",
-    "typescript": "catalog:"
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   }
 }
