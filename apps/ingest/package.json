@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "scripts": {
     "dev": "tsx watch src/index.ts",
+    "regions:idealista": "tsx src/index.ts idealista-regions",
     "start": "node dist/index.js"
   },
   "dependencies": {

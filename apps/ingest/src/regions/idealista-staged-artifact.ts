@@ -50,6 +50,8 @@ export type IdealistaStagedObservation = z.infer<
   typeof stagedObservationSchema
 >;
 type ArtifactObservation = z.infer<typeof artifactObservationSchema>;
+export type IdealistaArtifactObservation = ArtifactObservation;
+export type IdealistaSourceMetadata = z.infer<typeof sourceMetadataSchema>;
 
 export interface IdealistaArtifactValidation {
   assignableCount: number;
@@ -74,10 +76,31 @@ export async function writeIdealistaStagedArtifact({
   artifactDir: string;
   generatedAt?: Date;
   observations: IdealistaStagedObservation[];
-  source: z.infer<typeof sourceMetadataSchema>;
+  source: IdealistaSourceMetadata;
 }) {
   const parsedObservations = observationsSchema.parse(observations);
+  await writeUncheckedIdealistaStagedArtifact({
+    artifactDir,
+    generatedAt,
+    observations: parsedObservations,
+    source,
+  });
+}
+
+export async function writeUncheckedIdealistaStagedArtifact({
+  artifactDir,
+  generatedAt,
+  observations,
+  source,
+}: {
+  artifactDir: string;
+  generatedAt?: Date;
+  observations: IdealistaArtifactObservation[];
+  source: IdealistaSourceMetadata;
+}) {
+  const parsedObservations = artifactObservationsSchema.parse(observations);
   const parsedSource = sourceMetadataSchema.parse(source);
+  const validation = validateObservations(parsedObservations);
   const contentHash = hashCanonicalJson(parsedObservations);
 
   await mkdir(artifactDir, { recursive: true });
@@ -94,7 +117,7 @@ export async function writeIdealistaStagedArtifact({
         generatedAt: (generatedAt ?? new Date()).toISOString(),
         rowCount: parsedObservations.length,
         contentHash,
-        errorSummary: { total: 0 },
+        errorSummary: { total: validation.errors.length },
       },
       null,
       2
