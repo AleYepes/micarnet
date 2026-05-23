@@ -57,3 +57,18 @@ export type RegionBoundary =
       type: "MultiPolygon";
       coordinates: number[][][][];
     };
+
+export const regionIngestRuns = sqliteTable("region_ingest_runs", {
+  id: text("id").primaryKey(),
+  source: text("source").notNull(),
+  generatedAt: text("generated_at").notNull(),
+  rebuiltAt: text("rebuilt_at").notNull(),
+  rowCount: integer("row_count").notNull(),
+  contentHash: text("content_hash").notNull(),
+  errorSummary: text("error_summary", { mode: "json" })
+    .$type<{ total: number }>()
+    .notNull(),
+});
+
+export type RegionIngestRun = typeof regionIngestRuns.$inferSelect;
+export type NewRegionIngestRun = typeof regionIngestRuns.$inferInsert;

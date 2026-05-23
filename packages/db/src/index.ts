@@ -11,7 +11,11 @@ import {
   userRelations,
   verification,
 } from "./schema/auth.ts";
-import { regionRelations, regions } from "./schema/regions.ts";
+import {
+  regionIngestRuns,
+  regionRelations,
+  regions,
+} from "./schema/regions.ts";
 
 export function createDb() {
   const client = createClient({
@@ -30,6 +34,7 @@ export function createDb() {
       verification,
       regions,
       regionRelations,
+      regionIngestRuns,
     },
   });
 }

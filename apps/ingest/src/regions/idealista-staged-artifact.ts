@@ -24,6 +24,7 @@ const stagedObservationSchema = z.object({
   sourceId: z.string().min(1),
   parentSourceId: z.string().min(1).nullable(),
   name: z.string().min(1),
+  level: z.string().min(1).optional(),
   geometry: boundarySchema.optional(),
 });
 
@@ -31,6 +32,7 @@ const artifactObservationSchema = z.object({
   sourceId: z.string().min(1),
   parentSourceId: z.string().min(1).nullable().optional(),
   name: z.string().optional(),
+  level: z.string().min(1).optional(),
   geometry: z.unknown().optional(),
 });
 
