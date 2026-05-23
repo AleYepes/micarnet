@@ -1,4 +1,4 @@
-# Add one local initialization command for Idealista Regions
+# Add a local import and rebuild command for Idealista Regions
 
 ## Parent
 
@@ -6,18 +6,16 @@
 
 ## What to build
 
-Provide one local command that initializes Idealista-seeded Regions by running fetch, validation, snapshot hash checking, and rebuild in sequence. The underlying fetch and rebuild modules should remain independently runnable for debugging and reruns.
+Provide a local CLI command (or script) in the `ingest` app that handles importing a raw harvested output folder/file (produced by the Python harvester), staging and validating it as a local staged artifact, and then rebuilding the canonical Regions from it. The underlying import and rebuild modules should remain independently runnable.
 
 ## Acceptance criteria
 
-- [ ] A single command can run the full local Idealista Region initialization flow.
-- [ ] The command validates the staged artifact before rebuilding canonical Regions.
-- [ ] The command uses snapshot hash behavior to report unchanged snapshots before rebuilding.
-- [ ] Fetch and rebuild can still be run separately.
-- [ ] Command output summarizes artifact path, row counts, errors, hash status, and rebuild outcome.
-- [ ] Tests or command-level checks cover the non-live flow using local fixtures.
+- [ ] A single CLI command can read a raw harvested output directory, stage/validate it, and rebuild canonical Regions.
+- [ ] The command validates the staged artifact, reporting any errors or statistics (assignable vs. grouping counts).
+- [ ] The import/staging phase and the database rebuilding phase can still be run separately.
+- [ ] Command output clearly summarizes the imported file path, row counts, validation errors (if any), and rebuild outcome.
+- [ ] Tests or command-level checks cover the import and rebuild flow using local fixtures.
 
 ## Blocked by
 
-- [Detect unchanged Idealista snapshots before rebuild](./0005-detect-unchanged-idealista-snapshots.md)
-- [Fetch a live Idealista snapshot into the staged artifact format](./0006-fetch-live-idealista-snapshot.md)
+- [Rebuild canonical Regions from a staged Idealista artifact](./0004-rebuild-regions-from-staged-idealista-artifact.md)
