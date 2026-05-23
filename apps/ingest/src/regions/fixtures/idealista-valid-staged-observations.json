@@ -1,0 +1,18 @@
+[
+  {
+    "sourceId": "spain",
+    "parentSourceId": null,
+    "name": "Espana"
+  },
+  {
+    "sourceId": "madrid",
+    "parentSourceId": "spain",
+    "name": "Madrid",
+    "geometry": {
+      "type": "Polygon",
+      "coordinates": [
+        [[-3.9, 40.2], [-3.4, 40.2], [-3.4, 40.7], [-3.9, 40.7], [-3.9, 40.2]]
+      ]
+    }
+  }
+]

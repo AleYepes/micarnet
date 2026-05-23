@@ -6,7 +6,7 @@ MiCarnet needs a reliable canonical Region model for Spain so schools can be ass
 
 ## Context
 
-[CONTEXT: Idealista Region ingest](../docs/geography/CONTEXT.md)
+[CONTEXT: Idealista Region ingest](./CONTEXT.md)
 
 ## Solution
 

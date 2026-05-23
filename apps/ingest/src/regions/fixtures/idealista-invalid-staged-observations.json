@@ -1,0 +1,40 @@
+[
+  {
+    "sourceId": "duplicate",
+    "parentSourceId": null,
+    "name": "First duplicate"
+  },
+  {
+    "sourceId": "duplicate",
+    "parentSourceId": null,
+    "name": "Second duplicate"
+  },
+  {
+    "sourceId": "missing-name",
+    "parentSourceId": null
+  },
+  {
+    "sourceId": "missing-parent",
+    "parentSourceId": "absent-parent",
+    "name": "Missing parent"
+  },
+  {
+    "sourceId": "cycle-a",
+    "parentSourceId": "cycle-b",
+    "name": "Cycle A"
+  },
+  {
+    "sourceId": "cycle-b",
+    "parentSourceId": "cycle-a",
+    "name": "Cycle B"
+  },
+  {
+    "sourceId": "invalid-geometry",
+    "parentSourceId": null,
+    "name": "Invalid geometry",
+    "geometry": {
+      "type": "Polygon",
+      "coordinates": [[[-3.9, 40.2], [-3.4, 40.2]]]
+    }
+  }
+]
