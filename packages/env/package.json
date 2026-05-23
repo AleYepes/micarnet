@@ -4,6 +4,8 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./auth": "./src/auth.ts",
+    "./database": "./src/database.ts",
     "./server": "./src/server.ts",
     "./web": "./src/web.ts"
   },

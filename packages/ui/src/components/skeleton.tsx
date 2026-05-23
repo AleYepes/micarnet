@@ -1,4 +1,4 @@
-import { cn } from "@micarnet/ui/lib/utils.ts";
+import { cn } from "@micarnet/ui/lib/utils";
 
 function Skeleton({ className, ...props }: React.ComponentProps<"div">) {
 	return (

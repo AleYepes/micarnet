@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
@@ -8,8 +9,71 @@ import {
 } from "@micarnet/db/schema/regions";
 import { eq } from "drizzle-orm";
 import { validateIdealistaStagedArtifact } from "./idealista-staged-artifact";
+import {
+  assertValidRegionObservations,
+  type IdealistaRegionObservation,
+  type UncheckedIdealistaRegionObservation,
+  validateRegionObservations,
+} from "./validate-region-observations";
 
 export async function rebuildRegions({
+  db,
+  fetchedAt,
+  observations,
+  source = "idealista",
+}: {
+  // biome-ignore lint/suspicious/noExplicitAny: generic database client support
+  db: any;
+  fetchedAt?: Date;
+  observations: UncheckedIdealistaRegionObservation[];
+  source?: string;
+}) {
+  const validation = validateRegionObservations(observations);
+  if (!validation.isValid) {
+    throw new Error(
+      `Cannot rebuild Regions source=${source}: observations are invalid. Errors: ${JSON.stringify(
+        validation.errors
+      )}`
+    );
+  }
+
+  assertValidRegionObservations(observations, `rebuild source=${source}`);
+  const contentHash = hashCanonicalJson(observations);
+  const generatedAt = (fetchedAt ?? new Date()).toISOString();
+  const canonicalRegions = buildCanonicalRegions({ observations, source });
+
+  const ingestRun: NewRegionIngestRun = {
+    id: contentHash,
+    source,
+    generatedAt,
+    rebuiltAt: new Date().toISOString(),
+    rowCount: observations.length,
+    contentHash,
+    errorSummary: { total: validation.errors.length },
+  };
+
+  // biome-ignore lint/suspicious/noExplicitAny: transaction scope type
+  await db.transaction(async (tx: any) => {
+    await tx.delete(regions).where(eq(regions.source, source));
+
+    await tx
+      .delete(regionIngestRuns)
+      .where(eq(regionIngestRuns.source, source));
+
+    if (canonicalRegions.length > 0) {
+      await tx.insert(regions).values(canonicalRegions);
+    }
+
+    await tx.insert(regionIngestRuns).values(ingestRun);
+  });
+
+  return {
+    regionCount: canonicalRegions.length,
+    source,
+  };
+}
+
+export async function rebuildRegionsFromArtifact({
   db,
   artifactDir,
 }: {
@@ -30,34 +94,36 @@ export async function rebuildRegions({
     join(artifactDir, "observations.json"),
     "utf8"
   );
-  const observations = JSON.parse(observationsRaw) as Array<{
-    sourceId: string;
-    parentSourceId: string | null;
-    name: string;
-    level?: string;
-    // biome-ignore lint/suspicious/noExplicitAny: raw GeoJSON geometry is untyped
-    geometry?: any;
-  }>;
+  const observations = parseArtifactObservations(JSON.parse(observationsRaw));
 
   const manifestRaw = await readFile(
     join(artifactDir, "manifest.json"),
     "utf8"
   );
-  const manifest = JSON.parse(manifestRaw) as {
-    source: { name: string; treeUrl?: string };
-    generatedAt: string;
-    rowCount: number;
-    contentHash: string;
-    errorSummary: { total: number };
-  };
+  const manifest = parseArtifactManifest(JSON.parse(manifestRaw), artifactDir);
 
+  return rebuildRegions({
+    db,
+    fetchedAt: new Date(manifest.generatedAt),
+    observations,
+    source: manifest.source.name || "idealista",
+  });
+}
+
+function buildCanonicalRegions({
+  observations,
+  source,
+}: {
+  observations: IdealistaRegionObservation[];
+  source: string;
+}) {
   const observationsBySourceId = new Map(
     observations.map((obs) => [obs.sourceId, obs])
   );
 
-  const canonicalRegions: NewRegion[] = observations.map((obs) => {
+  return observations.map((obs): NewRegion => {
     const parentId = obs.parentSourceId
-      ? `idealista:${obs.parentSourceId}`
+      ? `${source}:${obs.parentSourceId}`
       : null;
 
     let depth = 0;
@@ -82,9 +148,9 @@ export async function rebuildRegions({
     }
 
     return {
-      id: `idealista:${obs.sourceId}`,
+      id: `${source}:${obs.sourceId}`,
       parentId,
-      source: "idealista",
+      source,
       sourceId: obs.sourceId,
       name: obs.name,
       level: obs.level ?? null,
@@ -93,31 +159,82 @@ export async function rebuildRegions({
       isAssignable: Boolean(obs.geometry),
     };
   });
+}
 
-  const sourceName = manifest.source.name || "idealista";
+function hashCanonicalJson(value: unknown) {
+  return createHash("sha256").update(canonicalize(value)).digest("hex");
+}
 
-  const ingestRun: NewRegionIngestRun = {
-    id: manifest.contentHash,
-    source: sourceName,
-    generatedAt: manifest.generatedAt,
-    rebuiltAt: new Date().toISOString(),
-    rowCount: manifest.rowCount,
-    contentHash: manifest.contentHash,
-    errorSummary: manifest.errorSummary || { total: 0 },
-  };
+function canonicalize(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => canonicalize(item)).join(",")}]`;
+  }
 
-  // biome-ignore lint/suspicious/noExplicitAny: transaction scope type
-  await db.transaction(async (tx: any) => {
-    await tx.delete(regions).where(eq(regions.source, sourceName));
+  if (value && typeof value === "object") {
+    const record = objectToRecord(value);
+    return `{${Object.keys(record)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${canonicalize(record[key])}`)
+      .join(",")}}`;
+  }
 
-    await tx
-      .delete(regionIngestRuns)
-      .where(eq(regionIngestRuns.source, sourceName));
+  return JSON.stringify(value);
+}
 
-    if (canonicalRegions.length > 0) {
-      await tx.insert(regions).values(canonicalRegions);
+function parseArtifactObservations(
+  value: unknown
+): UncheckedIdealistaRegionObservation[] {
+  if (!Array.isArray(value)) {
+    throw new Error(
+      "Cannot rebuild Regions from artifact: observations must be an array"
+    );
+  }
+
+  return value.map((item) => {
+    if (!isRecord(item) || typeof item.sourceId !== "string") {
+      throw new Error(
+        "Cannot rebuild Regions from artifact: observation missing sourceId"
+      );
     }
 
-    await tx.insert(regionIngestRuns).values(ingestRun);
+    return {
+      sourceId: item.sourceId,
+      ...(typeof item.parentSourceId === "string" ||
+      item.parentSourceId === null
+        ? { parentSourceId: item.parentSourceId }
+        : {}),
+      ...(typeof item.name === "string" ? { name: item.name } : {}),
+      ...(typeof item.level === "string" ? { level: item.level } : {}),
+      ...(item.geometry === undefined ? {} : { geometry: item.geometry }),
+    };
   });
+}
+
+function parseArtifactManifest(value: unknown, artifactDir: string) {
+  if (
+    !(isRecord(value) && isRecord(value.source)) ||
+    typeof value.source.name !== "string" ||
+    typeof value.generatedAt !== "string"
+  ) {
+    throw new Error(
+      `Cannot rebuild Regions: manifest at '${artifactDir}' is invalid.`
+    );
+  }
+
+  return {
+    source: { name: value.source.name },
+    generatedAt: value.generatedAt,
+  };
+}
+
+function objectToRecord(value: object): Record<string, unknown> {
+  if (isRecord(value)) {
+    return value;
+  }
+
+  return {};
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }

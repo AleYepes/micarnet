@@ -1,5 +1,5 @@
 import { createClient } from "@libsql/client";
-import { env } from "@micarnet/env/server";
+import { getDatabaseEnv } from "@micarnet/env/database";
 import { drizzle } from "drizzle-orm/libsql";
 
 import {
@@ -10,14 +10,11 @@ import {
   user,
   userRelations,
   verification,
-} from "./schema/auth.ts";
-import {
-  regionIngestRuns,
-  regionRelations,
-  regions,
-} from "./schema/regions.ts";
+} from "./schema/auth";
+import { regionIngestRuns, regionRelations, regions } from "./schema/regions";
 
 export function createDb() {
+  const env = getDatabaseEnv();
   const client = createClient({
     url: env.DATABASE_URL,
   });

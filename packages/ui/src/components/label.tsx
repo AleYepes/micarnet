@@ -1,4 +1,4 @@
-import { cn } from "@micarnet/ui/lib/utils.ts";
+import { cn } from "@micarnet/ui/lib/utils";
 import type * as React from "react";
 
 function Label({ className, ...props }: React.ComponentProps<"label">) {

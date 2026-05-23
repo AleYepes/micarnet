@@ -7,7 +7,7 @@ import { drizzle } from "drizzle-orm/libsql";
 import { afterEach, expect, test } from "vitest";
 
 import { writeIdealistaStagedArtifact } from "./idealista-staged-artifact";
-import { rebuildRegions } from "./rebuild-regions";
+import { rebuildRegions, rebuildRegionsFromArtifact } from "./rebuild-regions";
 
 const CONTENT_HASH_REGEX = /^[a-f0-9]{64}$/;
 const CANNOT_REBUILD_REGEX = /Cannot rebuild Regions/;
@@ -43,10 +43,8 @@ afterEach(async () => {
   dbFiles = [];
 });
 
-test("rebuilds canonical Regions and logs ingest run metadata from a valid staged artifact", async () => {
+test("rebuilds canonical Regions and logs ingest run metadata from valid observations", async () => {
   const { db } = await setupTestDb();
-  const artifactDir = await mkdtemp(join(tmpdir(), "idealista-rebuild-"));
-  artifactDirs.push(artifactDir);
 
   const fixtureObservations = [
     {
@@ -117,17 +115,11 @@ test("rebuilds canonical Regions and logs ingest run metadata from a valid stage
     },
   ];
 
-  await writeIdealistaStagedArtifact({
-    artifactDir,
-    generatedAt: new Date("2026-05-23T12:00:00.000Z"),
+  await rebuildRegions({
+    db,
+    fetchedAt: new Date("2026-05-23T12:00:00.000Z"),
     observations: fixtureObservations,
-    source: {
-      name: "idealista",
-      treeUrl: "https://mt1.idealista.com/11/tree/all-es-tree.json",
-    },
   });
-
-  await rebuildRegions({ db, artifactDir });
 
   const rebuiltRegions = await db.query.regions.findMany({
     orderBy: (table, { asc }) => [asc(table.depth), asc(table.name)],
@@ -194,7 +186,11 @@ test("rebuilds canonical Regions and logs ingest run metadata from a valid stage
 
   const runs = await db.query.regionIngestRuns.findMany();
   expect(runs).toHaveLength(1);
-  expect(runs[0]).toEqual(
+  const run = runs[0];
+  if (!run) {
+    throw new Error("Expected one Region ingest run after rebuild");
+  }
+  expect(run).toEqual(
     expect.objectContaining({
       source: "idealista",
       generatedAt: "2026-05-23T12:00:00.000Z",
@@ -202,7 +198,7 @@ test("rebuilds canonical Regions and logs ingest run metadata from a valid stage
       errorSummary: { total: 0 },
     })
   );
-  expect(runs[0].contentHash).toMatch(CONTENT_HASH_REGEX);
+  expect(run.contentHash).toMatch(CONTENT_HASH_REGEX);
 });
 
 test("rebuild is deterministic and clears old state when run repeatedly", async () => {
@@ -226,20 +222,28 @@ test("rebuild is deterministic and clears old state when run repeatedly", async 
   });
 
   // Rebuild first time
-  await rebuildRegions({ db, artifactDir });
+  await rebuildRegionsFromArtifact({ db, artifactDir });
   const run1 = await db.query.regionIngestRuns.findFirst();
 
   // Rebuild second time
-  await rebuildRegions({ db, artifactDir });
+  await rebuildRegionsFromArtifact({ db, artifactDir });
 
   const rebuiltRegions = await db.query.regions.findMany();
   expect(rebuiltRegions).toHaveLength(1);
-  expect(rebuiltRegions[0].id).toBe("idealista:spain");
+  const rebuiltRegion = rebuiltRegions[0];
+  if (!rebuiltRegion) {
+    throw new Error("Expected one rebuilt Region");
+  }
+  expect(rebuiltRegion.id).toBe("idealista:spain");
 
   const runs = await db.query.regionIngestRuns.findMany();
   expect(runs).toHaveLength(1);
-  expect(runs[0].id).toBe(run1?.id);
-  expect(runs[0].rebuiltAt).not.toBe(run1?.rebuiltAt); // Rebuilt timestamp should be updated
+  const run2 = runs[0];
+  if (!(run1 && run2)) {
+    throw new Error("Expected Region ingest run before and after rebuild");
+  }
+  expect(run2.id).toBe(run1.id);
+  expect(run2.rebuiltAt).not.toBe(run1.rebuiltAt);
 });
 
 test("throws error and does not touch database if staged artifact is invalid", async () => {
@@ -277,9 +281,13 @@ test("throws error and does not touch database if staged artifact is invalid", a
     "utf8"
   );
 
-  await expect(rebuildRegions({ db, artifactDir })).rejects.toThrow(
-    CANNOT_REBUILD_REGEX
-  );
+  await expect(
+    rebuildRegions({
+      db,
+      fetchedAt: new Date("2026-05-23T12:00:00.000Z"),
+      observations: fixtureObservations,
+    })
+  ).rejects.toThrow(CANNOT_REBUILD_REGEX);
 
   // Assert database remains completely empty
   const rebuiltRegions = await db.query.regions.findMany();

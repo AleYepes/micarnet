@@ -8,13 +8,14 @@ import {
   userRelations,
   verification,
 } from "@micarnet/db/schema/auth";
-import { env } from "@micarnet/env/server";
+import { getAuthEnv } from "@micarnet/env/auth";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { nextCookies } from "better-auth/next-js";
 
 export function createAuth() {
   const db = createDb();
+  const env = getAuthEnv();
 
   return betterAuth({
     database: drizzleAdapter(db, {

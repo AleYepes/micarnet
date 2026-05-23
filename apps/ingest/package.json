@@ -11,6 +11,7 @@
     "@libsql/client": "catalog:",
     "@micarnet/db": "workspace:*",
     "@micarnet/env": "workspace:*",
+    "dotenv": "catalog:",
     "drizzle-orm": "^0.45.1",
     "tsup": "^8.4.0",
     "zod": "catalog:"

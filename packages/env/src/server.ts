@@ -1,17 +1,23 @@
 import "dotenv/config";
 import { createEnv } from "@t3-oss/env-core";
 import { z } from "zod";
+import { getAuthEnv } from "./auth";
+import { getDatabaseEnv } from "./database";
 
-export const env = createEnv({
+const runtimeEnv = process.env;
+
+const nodeEnv = createEnv({
   server: {
-    DATABASE_URL: z.string().min(1),
-    BETTER_AUTH_SECRET: z.string().min(32),
-    BETTER_AUTH_URL: z.url(),
-    CORS_ORIGIN: z.url(),
     NODE_ENV: z
       .enum(["development", "production", "test"])
       .default("development"),
   },
-  runtimeEnv: process.env,
+  runtimeEnv,
   emptyStringAsUndefined: true,
 });
+
+export const env = {
+  ...getDatabaseEnv(runtimeEnv),
+  ...getAuthEnv(runtimeEnv),
+  ...nodeEnv,
+};
